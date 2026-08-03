@@ -145,6 +145,89 @@ async function softRefresh(renderFn) {
   restoreInputs(saved);
 }
 
+// ---- win / loss reactions -----------------------------------------------
+
+function fireConfetti() {
+  const canvas = document.createElement("canvas");
+  canvas.className = "confetti-canvas";
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  document.body.appendChild(canvas);
+  const ctx = canvas.getContext("2d");
+  const colors = OPTION_PALETTE;
+  const particles = Array.from({ length: 140 }, () => ({
+    x: Math.random() * canvas.width,
+    y: -20 - Math.random() * canvas.height * 0.4,
+    r: 4 + Math.random() * 4,
+    color: colors[Math.floor(Math.random() * colors.length)],
+    vx: -1.5 + Math.random() * 3,
+    vy: 2 + Math.random() * 2.5,
+    rot: Math.random() * 360,
+    vr: -6 + Math.random() * 12,
+    shape: Math.random() < 0.5 ? "rect" : "circle",
+  }));
+  const duration = 2600;
+  const start = performance.now();
+
+  function frame(now) {
+    const elapsed = now - start;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    particles.forEach((p) => {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.03;
+      p.rot += p.vr;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate((p.rot * Math.PI) / 180);
+      ctx.fillStyle = p.color;
+      if (p.shape === "rect") ctx.fillRect(-p.r, -p.r * 0.6, p.r * 2, p.r * 1.2);
+      else {
+        ctx.beginPath();
+        ctx.arc(0, 0, p.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    });
+    if (elapsed < duration && canvas.isConnected) requestAnimationFrame(frame);
+    else canvas.remove();
+  }
+  requestAnimationFrame(frame);
+}
+
+function showReaction({ emoji, caption, kind }) {
+  const el = document.createElement("div");
+  el.className = `reaction-pop ${kind}`;
+  el.innerHTML = `<div class="emoji">${emoji}</div><div class="caption">${escapeHtml(caption)}</div>`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2000);
+}
+
+function celebrateWin(amount) {
+  fireConfetti();
+  showReaction({ emoji: "🎉", caption: `You won ${fmtCoins(amount)} coins!`, kind: "win" });
+}
+
+function commiserateLoss() {
+  showReaction({ emoji: "😢", caption: "Not this time", kind: "lose" });
+}
+
+// Only fire the reaction once per bet resolution per page session, even
+// though soft-refreshing (polling, revisiting the page) re-renders it.
+const celebratedBets = new Set();
+
+function maybeReactToResolution(bet, user) {
+  if (bet.status !== "resolved" || celebratedBets.has(bet.id)) return;
+  celebratedBets.add(bet.id);
+  const myPayout = bet.payouts.find((p) => p.user_id === user.id && p.type === "payout");
+  const myRefund = bet.payouts.find((p) => p.user_id === user.id && p.type === "refund");
+  if (myPayout) {
+    celebrateWin(myPayout.amount);
+  } else if (bet.my_stakes.length > 0 && !myRefund) {
+    commiserateLoss();
+  }
+}
+
 // ---- state -------------------------------------------------------------
 
 function getToken() { return localStorage.getItem("pp_token"); }
@@ -629,6 +712,8 @@ async function viewBetDetail(betId) {
   const user = getUser();
   const isLeader = group.leader_id === user.id;
   const total = bet.option_totals.reduce((a, c) => a + c, 0);
+
+  maybeReactToResolution(bet, user);
 
   const optionsHtml = bet.options.map((opt, i) => {
     const amt = bet.option_totals[i];
