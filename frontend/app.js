@@ -1,3 +1,83 @@
+// ---- icons ---------------------------------------------------------------
+
+const ICON_PATHS = {
+  arrowLeft: '<path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/>',
+  plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
+  check: '<polyline points="20 6 9 17 4 12"/>',
+  x: '<path d="M18 6 6 18"/><path d="M6 6l12 12"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
+  users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  wallet: '<path d="M20 12V8a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15v4"/><path d="M3 6v13a2 2 0 0 0 2 2h15v-5"/><path d="M18 12a2 2 0 0 0 0 4h3v-4Z"/>',
+  trophy: '<circle cx="12" cy="8" r="6"/><path d="M8.5 13.5 6 22l6-3 6 3-2.5-8.5"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/>',
+  inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z"/>',
+  key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>',
+  copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  bolt: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+};
+
+function icon(name, size = 18) {
+  return `<span class="icon" style="width:${size}px;height:${size}px">
+    <svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON_PATHS[name] || ""}</svg>
+  </span>`;
+}
+
+// ---- avatars ---------------------------------------------------------------
+
+const AVATAR_PALETTE = ["#5b8cff", "#7c6cff", "#34d399", "#fbbf24", "#f87171", "#22d3ee", "#f472b6", "#a78bfa"];
+const OPTION_PALETTE = ["#5b8cff", "#f87171", "#34d399", "#fbbf24", "#a78bfa", "#22d3ee", "#f472b6", "#fb923c"];
+
+function hashSeed(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+function initials(name) {
+  const parts = (name || "?").trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function avatarHtml(name, size = "") {
+  const color = AVATAR_PALETTE[hashSeed(name || "?") % AVATAR_PALETTE.length];
+  return `<span class="avatar ${size}" style="background:${color}">${escapeHtml(initials(name))}</span>`;
+}
+
+function optionColor(i) { return OPTION_PALETTE[i % OPTION_PALETTE.length]; }
+
+// ---- toasts ---------------------------------------------------------------
+
+function toast(message, type = "success") {
+  let container = document.getElementById("toast-container");
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "toast-container";
+    document.body.appendChild(container);
+  }
+  const el = document.createElement("div");
+  el.className = `toast ${type}`;
+  el.innerHTML = `${icon(type === "error" ? "x" : "check", 17)}<span>${escapeHtml(message)}</span>`;
+  container.appendChild(el);
+  setTimeout(() => {
+    el.classList.add("leaving");
+    setTimeout(() => el.remove(), 200);
+  }, 3200);
+}
+
+// ---- skeleton loaders ---------------------------------------------------
+
+function skeletonCard(lines = 3) {
+  const rows = Array.from({ length: lines }, (_, i) =>
+    `<div class="skeleton skeleton-line" style="width:${100 - i * 15}%"></div>`
+  ).join("");
+  return `<div class="card">${rows}</div>`;
+}
+
+function skeletonView(cards = 3) {
+  return Array.from({ length: cards }, () => skeletonCard()).join("");
+}
+
 // ---- state -------------------------------------------------------------
 
 function getToken() { return localStorage.getItem("pp_token"); }
@@ -50,22 +130,32 @@ function escapeHtml(str) {
 
 function fmtCoins(n) { return n.toLocaleString(); }
 
+function setTitle(suffix) {
+  document.title = suffix ? `${suffix} · Playwise` : "Playwise";
+}
+
 function renderUserBox() {
   const box = document.getElementById("user-box");
   const user = getUser();
   if (!user) { box.innerHTML = ""; return; }
   box.innerHTML = `
-    <span>${escapeHtml(user.display_name)}</span>
-    <button class="secondary small" id="logout-btn">Log out</button>
+    <span class="name">${escapeHtml(user.display_name)}</span>
+    ${avatarHtml(user.display_name, "sm")}
+    <button class="ghost icon-btn" id="logout-btn" title="Log out">${icon("logout", 17)}</button>
   `;
   document.getElementById("logout-btn").onclick = () => {
     clearAuth();
     location.hash = "#/login";
+    toast("Logged out", "success");
   };
 }
 
 function setApp(html) {
-  document.getElementById("app").innerHTML = html;
+  const app = document.getElementById("app");
+  app.innerHTML = html;
+  app.style.animation = "none";
+  void app.offsetWidth;
+  app.style.animation = "";
 }
 
 // ---- router ------------------------------------------------------------
@@ -104,51 +194,68 @@ window.addEventListener("DOMContentLoaded", render);
 // ---- views: auth -------------------------------------------------------
 
 function viewLogin() {
+  setTitle();
   setApp(`
-    <div class="card stack" style="max-width:380px;margin:40px auto;">
-      <h1>Log in</h1>
-      <form id="login-form" class="stack">
-        <input name="username" placeholder="Username" autocomplete="username" required />
-        <input name="password" type="password" placeholder="Password" autocomplete="current-password" required />
-        <div class="error" id="login-error"></div>
-        <button type="submit">Log in</button>
-      </form>
-      <p class="center muted">No account? <a href="#/register">Register</a></p>
+    <div class="auth-shell">
+      <div class="card">
+        <div class="brand-mark">${icon("bolt", 20)}</div>
+        <h1 class="center">Welcome back</h1>
+        <p class="tagline center">Fake money, real bragging rights.</p>
+        <form id="login-form" class="stack">
+          <input name="username" placeholder="Username" autocomplete="username" required />
+          <input name="password" type="password" placeholder="Password" autocomplete="current-password" required />
+          <div class="error" id="login-error"></div>
+          <button type="submit">Log in</button>
+        </form>
+        <p class="center muted section-gap">No account? <a href="#/register">Register</a></p>
+      </div>
     </div>
   `);
   document.getElementById("login-form").onsubmit = async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
+    const btn = e.target.querySelector("button[type=submit]");
+    btn.disabled = true;
     try {
       const data = await api("/api/login", {
         method: "POST",
         body: { username: f.get("username"), password: f.get("password") },
       });
       setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name });
+      toast(`Welcome back, ${data.display_name}`, "success");
       location.hash = "#/groups";
     } catch (err) {
       document.getElementById("login-error").textContent = err.message;
+    } finally {
+      btn.disabled = false;
     }
   };
 }
 
 function viewRegister() {
+  setTitle();
   setApp(`
-    <div class="card stack" style="max-width:380px;margin:40px auto;">
-      <h1>Create account</h1>
-      <form id="register-form" class="stack">
-        <input name="display_name" placeholder="Display name" required />
-        <input name="username" placeholder="Username" autocomplete="username" required minlength="3" />
-        <input name="password" type="password" placeholder="Password (6+ characters)" autocomplete="new-password" required minlength="6" />
-        <div class="error" id="register-error"></div>
-        <button type="submit">Create account</button>
-      </form>
-      <p class="center muted">Already have an account? <a href="#/login">Log in</a></p>
+    <div class="auth-shell">
+      <div class="card">
+        <div class="brand-mark">${icon("bolt", 20)}</div>
+        <h1 class="center">Create your account</h1>
+        <p class="tagline center">Join a group and start predicting.</p>
+        <form id="register-form" class="stack">
+          <input name="display_name" placeholder="Display name" required />
+          <input name="username" placeholder="Username" autocomplete="username" required minlength="3" />
+          <input name="password" type="password" placeholder="Password (6+ characters)" autocomplete="new-password" required minlength="6" />
+          <div class="error" id="register-error"></div>
+          <button type="submit">Create account</button>
+        </form>
+        <p class="center muted section-gap">Already have an account? <a href="#/login">Log in</a></p>
+      </div>
     </div>
   `);
   document.getElementById("register-form").onsubmit = async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
+    const btn = e.target.querySelector("button[type=submit]");
+    btn.disabled = true;
     try {
       const data = await api("/api/register", {
         method: "POST",
@@ -159,9 +266,12 @@ function viewRegister() {
         },
       });
       setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name });
+      toast(`Account created — welcome, ${data.display_name}`, "success");
       location.hash = "#/groups";
     } catch (err) {
       document.getElementById("register-error").textContent = err.message;
+    } finally {
+      btn.disabled = false;
     }
   };
 }
@@ -169,25 +279,29 @@ function viewRegister() {
 // ---- views: groups -------------------------------------------------------
 
 async function viewGroups() {
-  setApp(`<div class="card center muted">Loading groups…</div>`);
+  setTitle();
+  setApp(skeletonView(2));
   const groups = await api("/api/groups");
 
   const groupsHtml = groups.length
     ? groups.map((g) => `
-        <a class="list-item" href="#/groups/${g.id}" style="text-decoration:none;color:inherit;">
-          <span>${escapeHtml(g.name)}</span>
-          <span class="balance" style="font-size:1.1rem;">${fmtCoins(g.my_balance)}</span>
+        <a class="list-item clickable" href="#/groups/${g.id}">
+          <div class="identity">
+            ${avatarHtml(g.name)}
+            <div class="meta"><div class="primary">${escapeHtml(g.name)}</div></div>
+          </div>
+          <span class="amount">${fmtCoins(g.my_balance)}</span>
         </a>
       `).join("")
-    : `<p class="muted">You're not in any groups yet.</p>`;
+    : `<div class="empty-state">${icon("users", 28)}<p>You're not in any groups yet — create one or join with an invite code.</p></div>`;
 
   setApp(`
     <div class="card">
-      <h1>Your groups</h1>
+      <h1 class="row" style="gap:8px;">${icon("bolt", 20)} Your groups</h1>
       ${groupsHtml}
     </div>
     <div class="card">
-      <h3>Create a group</h3>
+      <h3 class="card-title">${icon("plus", 16)} Create a group</h3>
       <form id="create-group-form" class="form-inline">
         <input name="name" placeholder="Group name" required />
         <button type="submit">Create</button>
@@ -195,7 +309,7 @@ async function viewGroups() {
       <div class="error" id="create-group-error"></div>
     </div>
     <div class="card">
-      <h3>Join a group</h3>
+      <h3 class="card-title">${icon("key", 16)} Join a group</h3>
       <form id="join-group-form" class="form-inline">
         <input name="invite_code" placeholder="Invite code" required />
         <button type="submit">Join</button>
@@ -209,6 +323,7 @@ async function viewGroups() {
     const f = new FormData(e.target);
     try {
       const g = await api("/api/groups", { method: "POST", body: { name: f.get("name") } });
+      toast(`Created "${g.name}"`, "success");
       location.hash = `#/groups/${g.id}`;
     } catch (err) {
       document.getElementById("create-group-error").textContent = err.message;
@@ -220,6 +335,7 @@ async function viewGroups() {
     const f = new FormData(e.target);
     try {
       const g = await api("/api/groups/join", { method: "POST", body: { invite_code: f.get("invite_code") } });
+      toast(`Joined "${g.name}"`, "success");
       location.hash = `#/groups/${g.id}`;
     } catch (err) {
       document.getElementById("join-group-error").textContent = err.message;
@@ -228,8 +344,10 @@ async function viewGroups() {
 }
 
 async function viewGroupDetail(groupId) {
-  setApp(`<div class="card center muted">Loading group…</div>`);
+  setTitle();
+  setApp(skeletonView(3));
   const group = await api(`/api/groups/${groupId}`);
+  setTitle(group.name);
   const user = getUser();
   const isLeader = group.leader_id === user.id;
 
@@ -238,51 +356,76 @@ async function viewGroupDetail(groupId) {
     .sort((a, b) => b.balance - a.balance)
     .map((m) => `
       <div class="list-item">
-        <span>${escapeHtml(m.display_name)}${m.user_id === group.leader_id ? ' <span class="badge">leader</span>' : ""}</span>
-        <span>${fmtCoins(m.balance)}</span>
+        <div class="identity">
+          ${avatarHtml(m.display_name)}
+          <div class="meta">
+            <div class="primary">${escapeHtml(m.display_name)}${m.user_id === group.leader_id ? ' <span class="badge leader">leader</span>' : ""}</div>
+          </div>
+        </div>
+        <span class="amount">${fmtCoins(m.balance)}</span>
       </div>
     `).join("");
 
   const pendingHtml = isLeader && group.pending_topups.length
     ? group.pending_topups.map((r) => `
         <div class="list-item">
-          <span>${escapeHtml(r.display_name)} requests ${fmtCoins(r.amount)}</span>
-          <span class="row">
-            <button class="small" data-approve="${r.id}">Approve</button>
-            <button class="small danger" data-reject="${r.id}">Reject</button>
+          <div class="identity">
+            ${avatarHtml(r.display_name)}
+            <div class="meta">
+              <div class="primary">${escapeHtml(r.display_name)}</div>
+              <div class="secondary">requests ${fmtCoins(r.amount)} coins</div>
+            </div>
+          </div>
+          <span class="row" style="gap:6px;">
+            <button class="secondary small icon-btn" data-approve="${r.id}" title="Approve">${icon("check", 15)}</button>
+            <button class="danger small icon-btn" data-reject="${r.id}" title="Reject">${icon("x", 15)}</button>
           </span>
         </div>
       `).join("")
-    : "";
+    : `<div class="empty-state" style="padding:14px 10px;">${icon("inbox", 22)}<p>Nothing pending.</p></div>`;
 
   const openBets = group.bets.filter((b) => b.status === "open");
   const resolvedBets = group.bets.filter((b) => b.status !== "open");
 
   function betRow(b) {
     const total = b.option_totals.reduce((a, c) => a + c, 0);
+    const leaderPct = total ? Math.round((Math.max(...b.option_totals) / total) * 100) : 0;
+    const leaderIdx = b.option_totals.indexOf(Math.max(...b.option_totals));
     return `
-      <a class="list-item" href="#/bets/${b.id}" style="text-decoration:none;color:inherit;">
-        <span>${escapeHtml(b.question)}</span>
-        <span class="row">
-          <span class="muted">${fmtCoins(total)} staked</span>
-          <span class="badge ${b.status}">${b.status}</span>
-        </span>
+      <a class="list-item clickable" href="#/bets/${b.id}">
+        <div class="identity" style="flex:1;min-width:0;">
+          <div class="meta" style="flex:1;min-width:0;">
+            <div class="primary" style="white-space:normal;">${escapeHtml(b.question)}</div>
+            <div class="secondary row" style="gap:8px;margin-top:4px;">
+              <span>${fmtCoins(total)} staked</span>
+              ${total ? `<span style="color:${optionColor(leaderIdx)}">${escapeHtml(b.options[leaderIdx])} ${leaderPct}%</span>` : ""}
+            </div>
+          </div>
+        </div>
+        <span class="badge ${b.status}">${b.status === "open" ? icon("clock", 12) : icon("trophy", 12)} ${b.status}</span>
       </a>
     `;
   }
 
   setApp(`
-    <div class="card">
+    <a href="#/groups" class="row" style="gap:6px;color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;">${icon("arrowLeft", 15)} All groups</a>
+
+    <div class="card balance-hero">
       <div class="row between">
-        <h1>${escapeHtml(group.name)}</h1>
-        <a href="#/groups" class="muted">&larr; all groups</a>
+        <div>
+          <div class="balance-label">${escapeHtml(group.name)}</div>
+          <div class="balance">${fmtCoins(group.my_balance)}<span class="unit">coins</span></div>
+        </div>
+        ${icon("wallet", 26)}
       </div>
-      <p class="muted">Invite code: <strong>${escapeHtml(group.invite_code)}</strong> (share this so others can join)</p>
-      <div class="balance">${fmtCoins(group.my_balance)} coins</div>
+      <div class="invite-pill section-gap">
+        ${icon("key", 14)} <code>${escapeHtml(group.invite_code)}</code>
+        <button class="ghost small" id="copy-invite-btn">${icon("copy", 13)} Copy</button>
+      </div>
     </div>
 
     <div class="card">
-      <h3>Request a top-up</h3>
+      <h3 class="card-title">${icon("plus", 16)} Request a top-up</h3>
       <form id="topup-form" class="form-inline">
         <input name="amount" type="number" min="1" placeholder="Amount" required />
         <button type="submit">Request</button>
@@ -292,42 +435,51 @@ async function viewGroupDetail(groupId) {
 
     ${isLeader ? `
       <div class="card">
-        <h3>Pending top-up requests</h3>
-        ${pendingHtml || '<p class="muted">Nothing pending.</p>'}
+        <h3 class="card-title">${icon("inbox", 16)} Pending top-up requests</h3>
+        ${pendingHtml}
       </div>
     ` : ""}
 
     <div class="card">
-      <h3>Members</h3>
+      <h3 class="card-title">${icon("users", 16)} Members</h3>
       ${membersHtml}
     </div>
 
     <div class="card">
-      <h3>New question</h3>
+      <h3 class="card-title">${icon("bolt", 16)} New question</h3>
       <form id="bet-form" class="stack">
         <input name="question" placeholder="What's the question?" required />
         <div id="options-container" class="stack">
-          <input name="option" placeholder="Option 1" required />
-          <input name="option" placeholder="Option 2" required />
+          <div class="option-input-row"><input name="option" placeholder="Option 1" required /></div>
+          <div class="option-input-row"><input name="option" placeholder="Option 2" required /></div>
         </div>
-        <button type="button" class="secondary small" id="add-option-btn" style="align-self:flex-start;">+ Add option</button>
+        <button type="button" class="secondary small" id="add-option-btn" style="align-self:flex-start;">${icon("plus", 14)} Add option</button>
         <div class="error" id="bet-error"></div>
         <button type="submit">Create question</button>
       </form>
     </div>
 
     <div class="card">
-      <h3>Open bets</h3>
-      ${openBets.length ? openBets.map(betRow).join("") : '<p class="muted">No open bets.</p>'}
+      <h3 class="card-title">${icon("clock", 16)} Open bets</h3>
+      ${openBets.length ? openBets.map(betRow).join("") : `<div class="empty-state">${icon("inbox", 24)}<p>No open bets yet.</p></div>`}
     </div>
 
     ${resolvedBets.length ? `
       <div class="card">
-        <h3>Resolved</h3>
+        <h3 class="card-title">${icon("trophy", 16)} Resolved</h3>
         ${resolvedBets.map(betRow).join("")}
       </div>
     ` : ""}
   `);
+
+  document.getElementById("copy-invite-btn").onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(group.invite_code);
+      toast("Invite code copied", "success");
+    } catch {
+      toast("Couldn't copy — copy it manually", "error");
+    }
+  };
 
   document.getElementById("topup-form").onsubmit = async (e) => {
     e.preventDefault();
@@ -337,6 +489,7 @@ async function viewGroupDetail(groupId) {
         method: "POST",
         body: { amount: Number(f.get("amount")) },
       });
+      toast("Top-up requested — waiting on the leader", "success");
       await viewGroupDetail(groupId);
     } catch (err) {
       document.getElementById("topup-error").textContent = err.message;
@@ -345,10 +498,13 @@ async function viewGroupDetail(groupId) {
 
   document.getElementById("add-option-btn").onclick = () => {
     const container = document.getElementById("options-container");
-    const input = document.createElement("input");
-    input.name = "option";
-    input.placeholder = `Option ${container.children.length + 1}`;
-    container.appendChild(input);
+    const row = document.createElement("div");
+    row.className = "option-input-row";
+    const n = container.children.length + 1;
+    row.innerHTML = `<input name="option" placeholder="Option ${n}" required />
+      <button type="button" class="ghost icon-btn remove-option-btn" title="Remove">${icon("x", 15)}</button>`;
+    container.appendChild(row);
+    row.querySelector(".remove-option-btn").onclick = () => row.remove();
   };
 
   document.getElementById("bet-form").onsubmit = async (e) => {
@@ -361,6 +517,7 @@ async function viewGroupDetail(groupId) {
         method: "POST",
         body: { question, options },
       });
+      toast("Question posted", "success");
       location.hash = `#/bets/${bet.id}`;
     } catch (err) {
       document.getElementById("bet-error").textContent = err.message;
@@ -369,14 +526,24 @@ async function viewGroupDetail(groupId) {
 
   document.querySelectorAll("[data-approve]").forEach((btn) => {
     btn.onclick = async () => {
-      await api(`/api/groups/${groupId}/topup-requests/${btn.dataset.approve}/approve`, { method: "POST" });
-      await viewGroupDetail(groupId);
+      try {
+        await api(`/api/groups/${groupId}/topup-requests/${btn.dataset.approve}/approve`, { method: "POST" });
+        toast("Top-up approved", "success");
+        await viewGroupDetail(groupId);
+      } catch (err) {
+        toast(err.message, "error");
+      }
     };
   });
   document.querySelectorAll("[data-reject]").forEach((btn) => {
     btn.onclick = async () => {
-      await api(`/api/groups/${groupId}/topup-requests/${btn.dataset.reject}/reject`, { method: "POST" });
-      await viewGroupDetail(groupId);
+      try {
+        await api(`/api/groups/${groupId}/topup-requests/${btn.dataset.reject}/reject`, { method: "POST" });
+        toast("Top-up rejected", "success");
+        await viewGroupDetail(groupId);
+      } catch (err) {
+        toast(err.message, "error");
+      }
     };
   });
 }
@@ -384,9 +551,11 @@ async function viewGroupDetail(groupId) {
 // ---- views: bet detail -------------------------------------------------
 
 async function viewBetDetail(betId) {
-  setApp(`<div class="card center muted">Loading…</div>`);
+  setTitle();
+  setApp(skeletonView(2));
   const bet = await api(`/api/bets/${betId}`);
   const group = await api(`/api/groups/${bet.group_id}`);
+  setTitle(bet.question);
   const user = getUser();
   const isLeader = group.leader_id === user.id;
   const total = bet.option_totals.reduce((a, c) => a + c, 0);
@@ -397,11 +566,11 @@ async function viewBetDetail(betId) {
     const isWinner = bet.status === "resolved" && bet.winning_option === i;
     return `
       <div class="option-row${isWinner ? " winner" : ""}">
-        <div class="row between">
-          <span>${escapeHtml(opt)}${isWinner ? ' <span class="badge resolved">winner</span>' : ""}</span>
-          <span class="muted">${fmtCoins(amt)} (${pct}%)</span>
+        <div class="option-head">
+          <span class="option-label"><span class="swatch" style="background:${optionColor(i)}"></span>${escapeHtml(opt)}${isWinner ? ` ${icon("trophy", 14)}` : ""}</span>
+          <span class="option-stats">${fmtCoins(amt)} · ${pct}%</span>
         </div>
-        <div class="option-bar"><div style="width:${pct}%"></div></div>
+        <div class="option-bar"><div style="width:${pct}%;background:${optionColor(i)}"></div></div>
       </div>
     `;
   }).join("");
@@ -409,41 +578,59 @@ async function viewBetDetail(betId) {
   const optionChoices = bet.options.map((opt, i) => `<option value="${i}">${escapeHtml(opt)}</option>`).join("");
 
   const myStakesHtml = bet.my_stakes.length
-    ? bet.my_stakes.map((s) => `<div class="list-item"><span>${escapeHtml(bet.options[s.option_index])}</span><span>${fmtCoins(s.amount)}</span></div>`).join("")
-    : '<p class="muted">You haven\'t staked on this yet.</p>';
+    ? bet.my_stakes.map((s) => `
+        <div class="list-item">
+          <div class="identity"><span class="swatch" style="background:${optionColor(s.option_index)};width:9px;height:9px;border-radius:3px;"></span><span class="primary">${escapeHtml(bet.options[s.option_index])}</span></div>
+          <span class="amount">${fmtCoins(s.amount)}</span>
+        </div>
+      `).join("")
+    : `<div class="empty-state" style="padding:14px 10px;">${icon("inbox", 22)}<p>You haven't staked on this yet.</p></div>`;
+
+  const winnerBanner = bet.status === "resolved"
+    ? `<div class="winner-banner">${icon("trophy", 20)} <span>${escapeHtml(bet.options[bet.winning_option])} won — the pool has been paid out to winners.</span></div>`
+    : "";
 
   setApp(`
+    <a href="#/groups/${group.id}" class="row" style="gap:6px;color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;">${icon("arrowLeft", 15)} ${escapeHtml(group.name)}</a>
+
     <div class="card">
-      <a href="#/groups/${group.id}" class="muted">&larr; ${escapeHtml(group.name)}</a>
-      <div class="row between">
+      <div class="row between" style="align-items:flex-start;">
         <h1>${escapeHtml(bet.question)}</h1>
-        <span class="badge ${bet.status}">${bet.status}</span>
+        <span class="badge ${bet.status}">${bet.status === "open" ? icon("clock", 12) : icon("trophy", 12)} ${bet.status}</span>
       </div>
+      <p class="muted" style="margin:2px 0 14px;">${fmtCoins(total)} coins staked total</p>
+      ${winnerBanner}
       ${optionsHtml}
     </div>
 
     ${bet.status === "open" ? `
       <div class="card">
-        <h3>Place a stake</h3>
-        <p class="muted">Your balance: ${fmtCoins(group.my_balance)}</p>
+        <h3 class="card-title">${icon("bolt", 16)} Place a stake</h3>
+        <p class="muted" style="margin-top:-4px;">Your balance: <strong>${fmtCoins(group.my_balance)}</strong> coins</p>
         <form id="stake-form" class="stack">
-          <select name="option_index">${optionChoices}</select>
-          <input name="amount" type="number" min="1" max="${group.my_balance}" placeholder="Amount" required />
+          <select name="option_index" id="stake-option">${optionChoices}</select>
+          <input name="amount" id="stake-amount" type="number" min="1" max="${group.my_balance}" placeholder="Amount" required ${group.my_balance < 1 ? "disabled" : ""} />
+          <div class="row" id="chip-row">
+            ${[25, 50, 100].map((v) => `<button type="button" class="chip" data-chip="${v}">+${v}</button>`).join("")}
+            <button type="button" class="chip" data-chip="max">Max</button>
+          </div>
+          <div class="hint positive" id="stake-hint"></div>
           <div class="error" id="stake-error"></div>
-          <button type="submit">Stake</button>
+          <button type="submit" ${group.my_balance < 1 ? "disabled" : ""}>Stake</button>
         </form>
+        ${group.my_balance < 1 ? `<p class="hint">You have no balance in this group — request a top-up first.</p>` : ""}
       </div>
     ` : ""}
 
     <div class="card">
-      <h3>Your stakes</h3>
+      <h3 class="card-title">${icon("wallet", 16)} Your stakes</h3>
       ${myStakesHtml}
     </div>
 
     ${isLeader && bet.status === "open" ? `
       <div class="card">
-        <h3>Resolve this bet</h3>
-        <p class="muted">Pick the winning option. All money staked on it splits the whole pool.</p>
+        <h3 class="card-title">${icon("trophy", 16)} Resolve this bet</h3>
+        <p class="muted" style="margin-top:-4px;">Pick the winning option. The entire pool splits among winners in proportion to their stake.</p>
         <form id="resolve-form" class="form-inline">
           <select name="winning_option">${optionChoices}</select>
           <button type="submit" class="danger">Resolve</button>
@@ -453,19 +640,49 @@ async function viewBetDetail(betId) {
     ` : ""}
   `);
 
+  const amountInput = document.getElementById("stake-amount");
+  const optionSelect = document.getElementById("stake-option");
+  const hintEl = document.getElementById("stake-hint");
+
+  function updateHint() {
+    const amount = Number(amountInput?.value || 0);
+    const idx = Number(optionSelect?.value || 0);
+    if (!amount || amount <= 0) { hintEl.textContent = ""; return; }
+    const totals = bet.option_totals.slice();
+    totals[idx] += amount;
+    const newTotal = totals.reduce((a, c) => a + c, 0);
+    const payout = Math.floor((amount * newTotal) / totals[idx]);
+    hintEl.textContent = `If "${bet.options[idx]}" wins right now, you'd receive ~${fmtCoins(payout)} coins (estimate — more stakes may still come in).`;
+  }
+
+  if (amountInput) {
+    amountInput.addEventListener("input", updateHint);
+    optionSelect.addEventListener("change", updateHint);
+    document.querySelectorAll("[data-chip]").forEach((chip) => {
+      chip.onclick = () => {
+        amountInput.value = chip.dataset.chip === "max" ? group.my_balance : Math.min(chip.dataset.chip, group.my_balance);
+        updateHint();
+      };
+    });
+  }
+
   const stakeForm = document.getElementById("stake-form");
   if (stakeForm) {
     stakeForm.onsubmit = async (e) => {
       e.preventDefault();
       const f = new FormData(e.target);
+      const btn = e.target.querySelector("button[type=submit]");
+      btn.disabled = true;
       try {
         await api(`/api/bets/${betId}/stake`, {
           method: "POST",
           body: { option_index: Number(f.get("option_index")), amount: Number(f.get("amount")) },
         });
+        toast("Stake placed", "success");
         await viewBetDetail(betId);
       } catch (err) {
         document.getElementById("stake-error").textContent = err.message;
+        btn.disabled = false;
       }
     };
   }
@@ -475,12 +692,14 @@ async function viewBetDetail(betId) {
     resolveForm.onsubmit = async (e) => {
       e.preventDefault();
       const f = new FormData(e.target);
-      if (!confirm("Resolve this bet? This cannot be undone.")) return;
+      const chosen = bet.options[Number(f.get("winning_option"))];
+      if (!confirm(`Resolve "${bet.question}" with "${chosen}" as the winner? This cannot be undone.`)) return;
       try {
         await api(`/api/bets/${betId}/resolve`, {
           method: "POST",
           body: { winning_option: Number(f.get("winning_option")) },
         });
+        toast(`Resolved — "${chosen}" won`, "success");
         await viewBetDetail(betId);
       } catch (err) {
         document.getElementById("resolve-error").textContent = err.message;

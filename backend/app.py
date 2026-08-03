@@ -8,7 +8,7 @@ from backend.routers import auth_router, bets, groups, wallet
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Prediction Pool")
+app = FastAPI(title="Playwise")
 
 app.include_router(auth_router.router)
 app.include_router(groups.router)

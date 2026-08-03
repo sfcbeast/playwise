@@ -1,4 +1,4 @@
-# Prediction Pool
+# Playwise
 
 A small group app that's part Splitwise, part Kalshi: each group has a shared
 pseudo-currency wallet per member (top up by request, approved by the group
