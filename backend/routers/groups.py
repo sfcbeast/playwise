@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.auth import get_current_user
 from backend.db import get_db
 from backend.helpers import get_group_or_404, get_membership_or_403
-from backend.models import Bet, Group, Membership, Stake, TopUpRequest, User
+from backend.models import Bet, Group, GroupEvent, Membership, Stake, TopUpRequest, User
 from backend.schemas import (
     BetSummary,
+    EventOut,
     GroupCreateRequest,
     GroupDetail,
     GroupJoinRequest,
@@ -115,7 +117,38 @@ def get_group(group_id: int, db: Session = Depends(get_db), user: User = Depends
             )
         )
 
+    latest_event_id = (
+        db.query(func.max(GroupEvent.id)).filter(GroupEvent.group_id == group_id).scalar() or 0
+    )
+
     return GroupDetail(
         id=group.id, name=group.name, invite_code=group.invite_code, leader_id=group.leader_id,
         my_balance=my_membership.balance, members=members, bets=bets, pending_topups=pending_topups,
+        latest_event_id=latest_event_id,
     )
+
+
+@router.get("/{group_id}/events", response_model=list[EventOut])
+def list_events(
+    group_id: int, after_id: int = 0, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    get_group_or_404(db, group_id)
+    get_membership_or_403(db, group_id, user.id)
+
+    events = (
+        db.query(GroupEvent)
+        .filter(GroupEvent.group_id == group_id, GroupEvent.id > after_id)
+        .order_by(GroupEvent.id.asc())
+        .limit(50)
+        .all()
+    )
+    out = []
+    for e in events:
+        actor = db.get(User, e.actor_id)
+        out.append(
+            EventOut(
+                id=e.id, type=e.type, actor_id=e.actor_id, actor_name=actor.display_name, message=e.message,
+                ref_bet_id=e.ref_bet_id, created_at=e.created_at,
+            )
+        )
+    return out

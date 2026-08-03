@@ -5,9 +5,17 @@ from sqlalchemy.orm import Session
 
 from backend.auth import get_current_user
 from backend.db import get_db
-from backend.helpers import get_group_or_404, get_membership_or_403, require_leader
+from backend.helpers import get_group_or_404, get_membership_or_403, log_event, require_leader
 from backend.models import Bet, Membership, Stake, Transaction, User
-from backend.schemas import BetCreateRequest, BetDetail, BetSummary, ResolveRequest, StakeCreateRequest, StakeOut
+from backend.schemas import (
+    BetCreateRequest,
+    BetDetail,
+    BetSummary,
+    PayoutOut,
+    ResolveRequest,
+    StakeCreateRequest,
+    StakeOut,
+)
 
 router = APIRouter(tags=["bets"])
 
@@ -26,6 +34,23 @@ def _get_bet_or_404(db: Session, bet_id: int) -> Bet:
     return bet
 
 
+def _payouts(db: Session, bet_id: int):
+    rows = (
+        db.query(Transaction)
+        .filter(Transaction.ref_bet_id == bet_id, Transaction.type.in_(["payout", "refund"]))
+        .all()
+    )
+    totals = {}  # (user_id, type) -> amount
+    for r in rows:
+        key = (r.user_id, r.type)
+        totals[key] = totals.get(key, 0) + r.amount
+    out = []
+    for (user_id, type_), amount in sorted(totals.items(), key=lambda kv: -kv[1]):
+        u = db.get(User, user_id)
+        out.append(PayoutOut(user_id=user_id, display_name=u.display_name, type=type_, amount=amount))
+    return out
+
+
 @router.post("/api/groups/{group_id}/bets", response_model=BetSummary)
 def create_bet(
     group_id: int, body: BetCreateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
@@ -35,6 +60,12 @@ def create_bet(
 
     bet = Bet(group_id=group_id, creator_id=user.id, question=body.question, options=body.options)
     db.add(bet)
+    db.flush()
+    log_event(
+        db, group_id, user.id, "bet_created",
+        f'{user.display_name} posted a new question: "{body.question}"',
+        ref_bet_id=bet.id,
+    )
     db.commit()
     db.refresh(bet)
     return BetSummary(
@@ -63,6 +94,7 @@ def get_bet(bet_id: int, db: Session = Depends(get_db), user: User = Depends(get
         id=bet.id, group_id=bet.group_id, question=bet.question, options=bet.options, status=bet.status,
         winning_option=bet.winning_option, creator_id=bet.creator_id,
         option_totals=_option_totals(db, bet), my_stakes=my_stakes_out, stakes=stakes_out,
+        payouts=_payouts(db, bet_id) if bet.status == "resolved" else [],
     )
 
 
@@ -88,6 +120,11 @@ def place_stake(
             balance_after=membership.balance, ref_bet_id=bet.id,
         )
     )
+    log_event(
+        db, bet.group_id, user.id, "stake_placed",
+        f'{user.display_name} staked {body.amount} coins on "{bet.options[body.option_index]}" for "{bet.question}"',
+        ref_bet_id=bet.id,
+    )
     db.commit()
     return get_bet(bet_id, db, user)
 
@@ -109,6 +146,9 @@ def resolve_bet(
     total_pool = sum(s.amount for s in all_stakes)
     winning_stakes = [s for s in all_stakes if s.option_index == body.winning_option]
     winning_pool = sum(s.amount for s in winning_stakes)
+
+    winning_option_text = bet.options[body.winning_option]
+    winner_amounts = {}  # user_id -> payout amount, for the event message
 
     if winning_pool == 0:
         # Nobody picked the winning option: nothing to distribute, refund every stake.
@@ -136,6 +176,7 @@ def resolve_bet(
                 .first()
             )
             membership.balance += payout
+            winner_amounts[s.user_id] = winner_amounts.get(s.user_id, 0) + payout
             db.add(
                 Transaction(
                     group_id=bet.group_id, user_id=s.user_id, type="payout", amount=payout,
@@ -147,5 +188,19 @@ def resolve_bet(
     bet.winning_option = body.winning_option
     bet.resolved_at = datetime.datetime.utcnow()
     bet.resolved_by = user.id
+
+    if winner_amounts:
+        breakdown = ", ".join(
+            f"{db.get(User, uid).display_name} +{amt}"
+            for uid, amt in sorted(winner_amounts.items(), key=lambda kv: -kv[1])
+        )
+        message = f'"{bet.question}" resolved — "{winning_option_text}" won. {breakdown} coins.'
+    else:
+        message = (
+            f'"{bet.question}" resolved — "{winning_option_text}" won, but nobody staked on it. '
+            f"All stakes were refunded."
+        )
+    log_event(db, bet.group_id, user.id, "bet_resolved", message, ref_bet_id=bet.id)
+
     db.commit()
     return get_bet(bet_id, db, user)

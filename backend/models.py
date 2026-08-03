@@ -96,6 +96,18 @@ class Stake(Base):
     created_at = Column(DateTime, default=utcnow)
 
 
+class GroupEvent(Base):
+    __tablename__ = "group_events"
+
+    id = Column(Integer, primary_key=True)
+    group_id = Column(Integer, ForeignKey("groups.id"), nullable=False)
+    actor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    type = Column(String, nullable=False)
+    message = Column(String, nullable=False)
+    ref_bet_id = Column(Integer, ForeignKey("bets.id"), nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+
+
 class Transaction(Base):
     __tablename__ = "transactions"
 

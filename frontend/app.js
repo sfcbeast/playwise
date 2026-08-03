@@ -14,6 +14,7 @@ const ICON_PATHS = {
   key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>',
   copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
   bolt: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
 };
 
 function icon(name, size = 18) {
@@ -55,9 +56,10 @@ function toast(message, type = "success") {
     container.id = "toast-container";
     document.body.appendChild(container);
   }
+  const iconName = type === "error" ? "x" : type === "info" ? "bell" : "check";
   const el = document.createElement("div");
   el.className = `toast ${type}`;
-  el.innerHTML = `${icon(type === "error" ? "x" : "check", 17)}<span>${escapeHtml(message)}</span>`;
+  el.innerHTML = `${icon(iconName, 17)}<span>${escapeHtml(message)}</span>`;
   container.appendChild(el);
   setTimeout(() => {
     el.classList.add("leaving");
@@ -76,6 +78,71 @@ function skeletonCard(lines = 3) {
 
 function skeletonView(cards = 3) {
   return Array.from({ length: cards }, () => skeletonCard()).join("");
+}
+
+// ---- live updates (polling) ---------------------------------------------
+// Keeps whatever group/bet page is open in sync with actions other members
+// take, without the user needing to hit refresh: poll a lightweight events
+// feed every few seconds, toast anything new from someone else, then
+// silently re-fetch the page's data.
+
+const POLL_INTERVAL_MS = 4000;
+let pollState = { timer: null, groupId: null, lastEventId: 0, refresh: null };
+
+function stopPolling() {
+  if (pollState.timer) clearInterval(pollState.timer);
+  pollState = { timer: null, groupId: null, lastEventId: 0, refresh: null };
+}
+
+function startPolling(groupId, latestEventId, refresh) {
+  stopPolling();
+  pollState.groupId = groupId;
+  pollState.lastEventId = latestEventId;
+  pollState.refresh = refresh;
+  pollState.timer = setInterval(pollTick, POLL_INTERVAL_MS);
+}
+
+async function pollTick() {
+  const { groupId, lastEventId, refresh } = pollState;
+  if (!groupId) return;
+  let events;
+  try {
+    events = await api(`/api/groups/${groupId}/events?after_id=${lastEventId}`);
+  } catch {
+    return; // transient network hiccup — just try again next tick
+  }
+  if (!pollState.groupId || !events.length) return;
+  pollState.lastEventId = Math.max(...events.map((e) => e.id));
+
+  const user = getUser();
+  events.filter((e) => e.actor_id !== user.id).forEach((e) => toast(e.message, "info"));
+  if (refresh) refresh();
+}
+
+// Re-rendering a view wipes any in-progress form input, which is jarring if
+// a background poll refresh lands while someone's mid-typing. Snapshot
+// named field values first and reapply them after the DOM is rebuilt.
+function captureInputs() {
+  return Array.from(document.querySelectorAll("#app input, #app select, #app textarea"))
+    .filter((el) => el.name)
+    .map((el) => ({ name: el.name, value: el.value }));
+}
+
+function restoreInputs(saved) {
+  const counters = {};
+  document.querySelectorAll("#app input, #app select, #app textarea").forEach((el) => {
+    if (!el.name) return;
+    const idx = counters[el.name] || 0;
+    counters[el.name] = idx + 1;
+    const matches = saved.filter((s) => s.name === el.name);
+    if (matches[idx] && matches[idx].value) el.value = matches[idx].value;
+  });
+}
+
+async function softRefresh(renderFn) {
+  const saved = captureInputs();
+  await renderFn();
+  restoreInputs(saved);
 }
 
 // ---- state -------------------------------------------------------------
@@ -161,6 +228,7 @@ function setApp(html) {
 // ---- router ------------------------------------------------------------
 
 async function render() {
+  stopPolling();
   renderUserBox();
   const hash = location.hash || "#/groups";
   const user = getUser();
@@ -546,6 +614,8 @@ async function viewGroupDetail(groupId) {
       }
     };
   });
+
+  startPolling(groupId, group.latest_event_id, () => softRefresh(() => viewGroupDetail(groupId)));
 }
 
 // ---- views: bet detail -------------------------------------------------
@@ -586,9 +656,38 @@ async function viewBetDetail(betId) {
       `).join("")
     : `<div class="empty-state" style="padding:14px 10px;">${icon("inbox", 22)}<p>You haven't staked on this yet.</p></div>`;
 
-  const winnerBanner = bet.status === "resolved"
-    ? `<div class="winner-banner">${icon("trophy", 20)} <span>${escapeHtml(bet.options[bet.winning_option])} won — the pool has been paid out to winners.</span></div>`
-    : "";
+  let winnerBanner = "";
+  let payoutsHtml = "";
+  if (bet.status === "resolved") {
+    const winningOption = escapeHtml(bet.options[bet.winning_option]);
+    let bannerText;
+    if (bet.payouts.length === 0) {
+      bannerText = `${winningOption} won — no one staked on this bet.`;
+    } else if (bet.payouts[0].type === "payout") {
+      bannerText = `${winningOption} won — the pool has been paid out to winners.`;
+    } else {
+      bannerText = `${winningOption} won, but nobody staked on it — all stakes were refunded.`;
+    }
+    winnerBanner = `<div class="winner-banner">${icon("trophy", 20)} <span>${bannerText}</span></div>`;
+
+    if (bet.payouts.length) {
+      const rows = bet.payouts.map((p) => `
+        <div class="list-item">
+          <div class="identity">
+            ${avatarHtml(p.display_name)}
+            <span class="primary">${escapeHtml(p.display_name)}${p.type === "refund" ? ' <span class="badge">refunded</span>' : ""}</span>
+          </div>
+          <span class="amount positive">+${fmtCoins(p.amount)}</span>
+        </div>
+      `).join("");
+      payoutsHtml = `
+        <div class="card">
+          <h3 class="card-title">${icon("trophy", 16)} ${bet.payouts[0].type === "payout" ? "Who won how much" : "Refunds"}</h3>
+          ${rows}
+        </div>
+      `;
+    }
+  }
 
   setApp(`
     <a href="#/groups/${group.id}" class="row" style="gap:6px;color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;">${icon("arrowLeft", 15)} ${escapeHtml(group.name)}</a>
@@ -602,6 +701,8 @@ async function viewBetDetail(betId) {
       ${winnerBanner}
       ${optionsHtml}
     </div>
+
+    ${payoutsHtml}
 
     ${bet.status === "open" ? `
       <div class="card">
@@ -706,4 +807,6 @@ async function viewBetDetail(betId) {
       }
     };
   }
+
+  startPolling(group.id, group.latest_event_id, () => softRefresh(() => viewBetDetail(betId)));
 }

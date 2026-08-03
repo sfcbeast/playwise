@@ -1,7 +1,9 @@
+from typing import Optional
+
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from backend.models import Group, Membership
+from backend.models import Group, GroupEvent, Membership
 
 
 def get_group_or_404(db: Session, group_id: int) -> Group:
@@ -25,3 +27,9 @@ def get_membership_or_403(db: Session, group_id: int, user_id: int) -> Membershi
 def require_leader(group: Group, user_id: int):
     if group.leader_id != user_id:
         raise HTTPException(status_code=403, detail="Only the group leader can do this")
+
+
+def log_event(
+    db: Session, group_id: int, actor_id: int, type_: str, message: str, ref_bet_id: Optional[int] = None
+):
+    db.add(GroupEvent(group_id=group_id, actor_id=actor_id, type=type_, message=message, ref_bet_id=ref_bet_id))

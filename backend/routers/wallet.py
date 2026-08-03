@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from backend.auth import get_current_user
 from backend.db import get_db
-from backend.helpers import get_group_or_404, get_membership_or_403, require_leader
+from backend.helpers import get_group_or_404, get_membership_or_403, log_event, require_leader
 from backend.models import Membership, TopUpRequest, Transaction, User
 from backend.schemas import TopUpCreateRequest, TopUpRequestOut, TransactionOut
 
@@ -21,6 +21,11 @@ def request_topup(
 
     req = TopUpRequest(group_id=group_id, user_id=user.id, amount=body.amount)
     db.add(req)
+    db.flush()
+    log_event(
+        db, group_id, user.id, "topup_requested",
+        f"{user.display_name} requested a top-up of {body.amount} coins",
+    )
     db.commit()
     db.refresh(req)
     return TopUpRequestOut(
@@ -75,9 +80,13 @@ def approve_topup(
             balance_after=membership.balance, ref_request_id=req.id,
         )
     )
+    requester = db.get(User, req.user_id)
+    log_event(
+        db, group_id, user.id, "topup_approved",
+        f"{user.display_name} approved {requester.display_name}'s top-up of {req.amount} coins",
+    )
     db.commit()
     db.refresh(req)
-    requester = db.get(User, req.user_id)
     return TopUpRequestOut(
         id=req.id, group_id=req.group_id, user_id=req.user_id, display_name=requester.display_name,
         amount=req.amount, status=req.status, created_at=req.created_at,
@@ -100,9 +109,13 @@ def reject_topup(
     req.status = "rejected"
     req.resolved_at = datetime.datetime.utcnow()
     req.resolved_by = user.id
+    requester = db.get(User, req.user_id)
+    log_event(
+        db, group_id, user.id, "topup_rejected",
+        f"{user.display_name} rejected {requester.display_name}'s top-up request of {req.amount} coins",
+    )
     db.commit()
     db.refresh(req)
-    requester = db.get(User, req.user_id)
     return TopUpRequestOut(
         id=req.id, group_id=req.group_id, user_id=req.user_id, display_name=requester.display_name,
         amount=req.amount, status=req.status, created_at=req.created_at,

@@ -66,6 +66,7 @@ class GroupDetail(BaseModel):
     members: List[MemberBalance]
     bets: List[BetSummary]
     pending_topups: List["TopUpRequestOut"]
+    latest_event_id: int
 
 
 class TopUpCreateRequest(BaseModel):
@@ -103,6 +104,13 @@ class StakeOut(BaseModel):
     amount: int
 
 
+class PayoutOut(BaseModel):
+    user_id: int
+    display_name: str
+    type: str  # payout | refund
+    amount: int
+
+
 class BetDetail(BaseModel):
     id: int
     group_id: int
@@ -114,6 +122,7 @@ class BetDetail(BaseModel):
     option_totals: List[int]
     my_stakes: List[StakeOut]
     stakes: List[StakeOut]
+    payouts: List[PayoutOut]
 
 
 class TransactionOut(BaseModel):
@@ -123,6 +132,16 @@ class TransactionOut(BaseModel):
     balance_after: int
     ref_bet_id: Optional[int]
     ref_request_id: Optional[int]
+    created_at: datetime.datetime
+
+
+class EventOut(BaseModel):
+    id: int
+    type: str
+    actor_id: int
+    actor_name: str
+    message: str
+    ref_bet_id: Optional[int]
     created_at: datetime.datetime
 
 
