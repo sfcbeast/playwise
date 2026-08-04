@@ -17,6 +17,7 @@ const ICON_PATHS = {
   bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
   edit: '<path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3Z"/>',
   trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
+  flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>',
 };
 
 function icon(name, size = 18) {
@@ -48,6 +49,44 @@ function avatarHtml(name, size = "") {
 }
 
 function optionColor(i) { return OPTION_PALETTE[i % OPTION_PALETTE.length]; }
+
+// ---- votes ---------------------------------------------------------------
+
+function voteCardHtml(vote) {
+  const title = vote.type === "change_leader"
+    ? `Make ${escapeHtml(vote.target_user_name)} the leader?`
+    : `Overturn the resolution of "${escapeHtml(vote.target_bet_question)}"?`;
+  const total = vote.total_members || 1;
+  const yesPct = Math.round((vote.yes_count / total) * 100);
+  const noPct = Math.round((vote.no_count / total) * 100);
+  const countdown = formatCountdown(vote.closes_at);
+  return `
+    <div class="card">
+      <h3 class="card-title">${icon(vote.type === "change_leader" ? "users" : "flag", 16)} ${title}</h3>
+      <p class="muted" style="margin-top:-6px;">${vote.reason ? `"${escapeHtml(vote.reason)}" — ` : ""}started by ${escapeHtml(vote.initiator_name)}</p>
+      <div class="vote-bar"><div class="yes" style="width:${yesPct}%"></div><div class="no" style="width:${noPct}%"></div></div>
+      <p class="muted" style="font-size:0.85rem;">${vote.yes_count} yes · ${vote.no_count} no · out of ${vote.total_members} members (needs 60% yes) ${countdown ? `· ${countdown.text}` : ""}</p>
+      <div class="row">
+        <button class="chip vote-yes${vote.my_choice === "yes" ? " active" : ""}" data-vote-ballot="${vote.id}" data-choice="yes">${icon("check", 13)} Yes</button>
+        <button class="chip vote-no${vote.my_choice === "no" ? " active" : ""}" data-vote-ballot="${vote.id}" data-choice="no">${icon("x", 13)} No</button>
+      </div>
+    </div>
+  `;
+}
+
+function wireVoteBallots(onDone) {
+  document.querySelectorAll("[data-vote-ballot]").forEach((btn) => {
+    btn.onclick = async () => {
+      try {
+        await api(`/api/votes/${btn.dataset.voteBallot}/ballot`, { method: "POST", body: { choice: btn.dataset.choice } });
+        toast("Vote recorded", "success");
+        await onDone();
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    };
+  });
+}
 
 // ---- toasts ---------------------------------------------------------------
 
@@ -551,10 +590,16 @@ async function viewGroups() {
 async function viewGroupDetail(groupId) {
   setTitle();
   setApp(skeletonView(3));
-  const group = await api(`/api/groups/${groupId}`);
+  const [group, votes] = await Promise.all([api(`/api/groups/${groupId}`), api(`/api/groups/${groupId}/votes`)]);
   setTitle(group.name);
   const user = getUser();
   const isLeader = group.leader_id === user.id;
+
+  const openLeaderVote = votes.find((v) => v.type === "change_leader" && v.status === "open");
+  const otherMembers = group.members.filter((m) => m.user_id !== group.leader_id);
+  const leaderVoteChoices = otherMembers
+    .map((m) => `<option value="${m.user_id}">${escapeHtml(m.display_name)}</option>`)
+    .join("");
 
   const membersHtml = group.members
     .slice()
@@ -669,7 +714,18 @@ async function viewGroupDetail(groupId) {
     <div class="card">
       <h3 class="card-title">${icon("users", 16)} Members</h3>
       ${membersHtml}
+      ${!openLeaderVote && otherMembers.length ? `
+        <form id="start-leader-vote-form" class="stack section-gap">
+          <label class="field-label">Start a vote to change leader</label>
+          <select name="target_user_id">${leaderVoteChoices}</select>
+          <input name="reason" placeholder="Reason (optional)" maxlength="280" />
+          <button type="submit" class="secondary small" style="align-self:flex-start;">${icon("flag", 14)} Start vote</button>
+        </form>
+        <div class="error" id="leader-vote-error"></div>
+      ` : ""}
     </div>
+
+    ${openLeaderVote ? voteCardHtml(openLeaderVote) : ""}
 
     <div class="card">
       <h3 class="card-title">${icon("users", 16)} Sub-groups</h3>
@@ -731,6 +787,25 @@ async function viewGroupDetail(groupId) {
       toast("Couldn't copy — copy it manually", "error");
     }
   };
+
+  const leaderVoteForm = document.getElementById("start-leader-vote-form");
+  if (leaderVoteForm) {
+    leaderVoteForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      try {
+        await api(`/api/groups/${groupId}/votes`, {
+          method: "POST",
+          body: { type: "change_leader", target_user_id: Number(f.get("target_user_id")), reason: f.get("reason") || null },
+        });
+        toast("Vote started", "success");
+        await viewGroupDetail(groupId);
+      } catch (err) {
+        document.getElementById("leader-vote-error").textContent = err.message;
+      }
+    };
+  }
+  wireVoteBallots(() => viewGroupDetail(groupId));
 
   document.getElementById("create-subgroup-form").onsubmit = async (e) => {
     e.preventDefault();
@@ -850,6 +925,8 @@ async function viewBetDetail(betId) {
   setApp(skeletonView(2));
   const bet = await api(`/api/bets/${betId}`);
   const group = await api(`/api/groups/${bet.group_id}`);
+  const votes = bet.status === "deleted" ? [] : await api(`/api/groups/${bet.group_id}/votes`);
+  const disputeVote = votes.find((v) => v.type === "dispute_resolution" && v.target_bet_id === betId);
   setTitle(bet.question);
   const user = getUser();
   const isLeader = group.leader_id === user.id;
@@ -972,6 +1049,18 @@ async function viewBetDetail(betId) {
     </div>
 
     ${payoutsHtml}
+
+    ${disputeVote ? voteCardHtml(disputeVote) : ""}
+    ${bet.status === "resolved" && !disputeVote ? `
+      <div class="card">
+        <h3 class="card-title">${icon("flag", 16)} Think this was resolved wrong?</h3>
+        <form id="dispute-form" class="stack">
+          <input name="reason" placeholder="Why? (optional)" maxlength="280" />
+          <button type="submit" class="secondary small" style="align-self:flex-start;">${icon("flag", 14)} Dispute this resolution</button>
+        </form>
+        <div class="error" id="dispute-error"></div>
+      </div>
+    ` : ""}
 
     ${bet.status === "open" && !stakingClosed ? `
       <div class="card">
@@ -1131,6 +1220,25 @@ async function viewBetDetail(betId) {
       }
     };
   }
+
+  const disputeForm = document.getElementById("dispute-form");
+  if (disputeForm) {
+    disputeForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      try {
+        await api(`/api/groups/${group.id}/votes`, {
+          method: "POST",
+          body: { type: "dispute_resolution", target_bet_id: betId, reason: f.get("reason") || null },
+        });
+        toast("Dispute started", "success");
+        await viewBetDetail(betId);
+      } catch (err) {
+        document.getElementById("dispute-error").textContent = err.message;
+      }
+    };
+  }
+  wireVoteBallots(() => viewBetDetail(betId));
 
   startPolling(group.id, group.latest_event_id, () => softRefresh(() => viewBetDetail(betId)));
 }

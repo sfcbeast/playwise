@@ -158,4 +158,35 @@ class EventOut(BaseModel):
     created_at: datetime.datetime
 
 
+class VoteCreateRequest(BaseModel):
+    type: str  # change_leader | dispute_resolution
+    target_user_id: Optional[int] = None
+    target_bet_id: Optional[int] = None
+    reason: Optional[str] = Field(default=None, max_length=280)
+
+
+class BallotRequest(BaseModel):
+    choice: str  # yes | no
+
+
+class VoteOut(BaseModel):
+    id: int
+    group_id: int
+    type: str
+    initiator_id: int
+    initiator_name: str
+    target_user_id: Optional[int]
+    target_user_name: Optional[str]
+    target_bet_id: Optional[int]
+    target_bet_question: Optional[str]
+    reason: Optional[str]
+    status: str
+    yes_count: int
+    no_count: int
+    total_members: int
+    my_choice: Optional[str]
+    closes_at: datetime.datetime
+    created_at: datetime.datetime
+
+
 GroupDetail.model_rebuild()

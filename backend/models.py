@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 
@@ -116,9 +117,36 @@ class Transaction(Base):
     id = Column(Integer, primary_key=True)
     group_id = Column(Integer, ForeignKey("groups.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    type = Column(String, nullable=False)  # topup/stake/payout/refund
+    type = Column(String, nullable=False)  # topup/stake/payout/refund/reversal
     amount = Column(Integer, nullable=False)  # signed: + credit, - debit
     balance_after = Column(Integer, nullable=False)
     ref_bet_id = Column(Integer, ForeignKey("bets.id"), nullable=True)
     ref_request_id = Column(Integer, ForeignKey("topup_requests.id"), nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+
+
+class GroupVote(Base):
+    __tablename__ = "group_votes"
+
+    id = Column(Integer, primary_key=True)
+    group_id = Column(Integer, ForeignKey("groups.id"), nullable=False)
+    type = Column(String, nullable=False)  # change_leader | dispute_resolution
+    initiator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    target_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # proposed leader
+    target_bet_id = Column(Integer, ForeignKey("bets.id"), nullable=True)  # disputed bet
+    reason = Column(String, nullable=True)
+    status = Column(String, nullable=False, default="open")  # open/passed/failed
+    closes_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=utcnow)
+    resolved_at = Column(DateTime, nullable=True)
+
+
+class VoteBallot(Base):
+    __tablename__ = "vote_ballots"
+    __table_args__ = (UniqueConstraint("vote_id", "user_id", name="uq_vote_ballot_voter"),)
+
+    id = Column(Integer, primary_key=True)
+    vote_id = Column(Integer, ForeignKey("group_votes.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    choice = Column(String, nullable=False)  # yes | no
     created_at = Column(DateTime, default=utcnow)

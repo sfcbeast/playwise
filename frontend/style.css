@@ -399,6 +399,22 @@ button.chip.active { background: color-mix(in srgb, var(--accent) 16%, transpare
 }
 
 /* ---------------------------------------------------------------------
+   Votes
+--------------------------------------------------------------------- */
+.vote-bar {
+  height: 10px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  display: flex;
+}
+.vote-bar .yes { background: var(--positive); height: 100%; }
+.vote-bar .no { background: var(--negative); height: 100%; }
+button.chip.vote-yes.active { background: color-mix(in srgb, var(--positive) 20%, transparent); border-color: var(--positive); color: var(--positive); }
+button.chip.vote-no.active { background: color-mix(in srgb, var(--negative) 20%, transparent); border-color: var(--negative); color: var(--negative); }
+
+/* ---------------------------------------------------------------------
    Market / option bars
 --------------------------------------------------------------------- */
 .option-row { padding: 10px 0; }
