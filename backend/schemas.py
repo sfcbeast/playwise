@@ -99,6 +99,11 @@ class ResolveRequest(BaseModel):
     winning_option: int = Field(ge=0)
 
 
+class BetEditRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=280)
+    options: List[str] = Field(min_length=2, max_length=8)
+
+
 class StakeOut(BaseModel):
     user_id: int
     display_name: str

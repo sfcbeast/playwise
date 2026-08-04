@@ -371,6 +371,33 @@ button.chip.active { background: color-mix(in srgb, var(--accent) 16%, transpare
 .badge.countdown { background: var(--warning-bg); color: var(--warning); border-color: transparent; font-variant-numeric: tabular-nums; }
 .badge.countdown.closed { background: var(--bg-soft); color: var(--text-tertiary); }
 
+.timer-section {
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border-strong));
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: color-mix(in srgb, var(--warning) 6%, var(--bg-soft));
+}
+
+.countdown-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: var(--warning-bg);
+  color: var(--warning);
+  font-weight: 700;
+  font-size: 0.92rem;
+  margin: 10px 0 14px;
+  font-variant-numeric: tabular-nums;
+}
+.countdown-strip.closed,
+.countdown-strip:has(.countdown.closed) {
+  background: var(--bg-soft);
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
 /* ---------------------------------------------------------------------
    Market / option bars
 --------------------------------------------------------------------- */

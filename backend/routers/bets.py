@@ -5,11 +5,12 @@ from sqlalchemy.orm import Session
 
 from backend.auth import get_current_user
 from backend.db import get_db
-from backend.helpers import get_group_or_404, get_membership_or_403, log_event, require_leader
+from backend.helpers import get_group_or_404, get_membership_or_403, log_event, require_creator_or_leader
 from backend.models import Bet, Membership, Stake, Transaction, User
 from backend.schemas import (
     BetCreateRequest,
     BetDetail,
+    BetEditRequest,
     BetSummary,
     PayoutOut,
     ResolveRequest,
@@ -107,6 +108,65 @@ def get_bet(bet_id: int, db: Session = Depends(get_db), user: User = Depends(get
     )
 
 
+@router.patch("/api/bets/{bet_id}", response_model=BetDetail)
+def edit_bet(
+    bet_id: int, body: BetEditRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    bet = _get_bet_or_404(db, bet_id)
+    get_membership_or_403(db, bet.group_id, user.id)
+
+    if user.id != bet.creator_id:
+        raise HTTPException(status_code=403, detail="Only the question's creator can edit it")
+    if bet.status != "open":
+        raise HTTPException(status_code=400, detail="Can't edit a bet that's already resolved")
+    if db.query(Stake).filter(Stake.bet_id == bet_id).count() > 0:
+        raise HTTPException(status_code=400, detail="Can't edit a question once people have staked on it")
+
+    bet.question = body.question
+    bet.options = body.options
+    log_event(db, bet.group_id, user.id, "bet_edited", f'{user.display_name} edited a question: "{body.question}"', ref_bet_id=bet.id)
+    db.commit()
+    return get_bet(bet_id, db, user)
+
+
+@router.delete("/api/bets/{bet_id}", response_model=dict)
+def delete_bet(bet_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    bet = _get_bet_or_404(db, bet_id)
+    group = get_group_or_404(db, bet.group_id)
+    get_membership_or_403(db, bet.group_id, user.id)
+    require_creator_or_leader(bet, group, user.id)
+
+    if bet.status != "open":
+        raise HTTPException(status_code=400, detail="Can't delete a bet that's already resolved")
+
+    all_stakes = db.query(Stake).filter(Stake.bet_id == bet_id).all()
+    for s in all_stakes:
+        membership = (
+            db.query(Membership)
+            .filter(Membership.group_id == bet.group_id, Membership.user_id == s.user_id)
+            .first()
+        )
+        membership.balance += s.amount
+        db.add(
+            Transaction(
+                group_id=bet.group_id, user_id=s.user_id, type="refund", amount=s.amount,
+                balance_after=membership.balance, ref_bet_id=bet.id,
+            )
+        )
+
+    # Soft-delete: existing Transaction/GroupEvent rows already reference this
+    # bet's id via foreign key, so a real DELETE would fail (Postgres enforces
+    # it; SQLite silently doesn't, which would've hidden this locally).
+    bet.status = "deleted"
+    log_event(
+        db, bet.group_id, user.id, "bet_deleted",
+        f'{user.display_name} deleted the question "{bet.question}"' + (" — stakes refunded" if all_stakes else ""),
+        ref_bet_id=bet.id,
+    )
+    db.commit()
+    return {"ok": True}
+
+
 @router.post("/api/bets/{bet_id}/stake", response_model=BetDetail)
 def place_stake(
     bet_id: int, body: StakeCreateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
@@ -146,7 +206,7 @@ def resolve_bet(
 ):
     bet = _get_bet_or_404(db, bet_id)
     group = get_group_or_404(db, bet.group_id)
-    require_leader(group, user.id)
+    require_creator_or_leader(bet, group, user.id)
 
     if bet.status != "open":
         raise HTTPException(status_code=400, detail="This bet is already resolved")

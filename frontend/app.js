@@ -15,6 +15,8 @@ const ICON_PATHS = {
   copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
   bolt: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
   bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+  edit: '<path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3Z"/>',
+  trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
 };
 
 function icon(name, size = 18) {
@@ -588,7 +590,7 @@ async function viewGroupDetail(groupId) {
     : `<div class="empty-state" style="padding:14px 10px;">${icon("inbox", 22)}<p>Nothing pending.</p></div>`;
 
   const openBets = group.bets.filter((b) => b.status === "open");
-  const resolvedBets = group.bets.filter((b) => b.status !== "open");
+  const resolvedBets = group.bets.filter((b) => b.status === "resolved");
 
   function betRow(b) {
     const total = b.option_totals.reduce((a, c) => a + c, 0);
@@ -662,17 +664,19 @@ async function viewGroupDetail(groupId) {
         </div>
         <button type="button" class="secondary small" id="add-option-btn" style="align-self:flex-start;">${icon("plus", 14)} Add option</button>
 
-        <label class="field-label">${icon("clock", 12)} Closes at (optional)</label>
-        <input type="datetime-local" name="closes_at" id="bet-closes-at" />
-        <div class="row">
-          <button type="button" class="chip" data-closes-in="1">+1h</button>
-          <button type="button" class="chip" data-closes-in="6">+6h</button>
-          <button type="button" class="chip" data-closes-in="24">+1d</button>
-          <button type="button" class="chip" data-closes-in="72">+3d</button>
-          <button type="button" class="chip" data-closes-in="168">+1w</button>
-          <button type="button" class="chip" data-closes-in="clear">No deadline</button>
+        <div class="timer-section stack">
+          <label class="field-label" style="color:var(--warning);">${icon("clock", 14)} Staking deadline (optional)</label>
+          <input type="datetime-local" name="closes_at" id="bet-closes-at" />
+          <div class="row">
+            <button type="button" class="chip" data-closes-in="1">+1h</button>
+            <button type="button" class="chip" data-closes-in="6">+6h</button>
+            <button type="button" class="chip" data-closes-in="24">+1d</button>
+            <button type="button" class="chip" data-closes-in="72">+3d</button>
+            <button type="button" class="chip" data-closes-in="168">+1w</button>
+            <button type="button" class="chip" data-closes-in="clear">No deadline</button>
+          </div>
+          <p class="hint" style="margin:0;">If set, no one can stake after this time — you can still resolve whenever the outcome's known.</p>
         </div>
-        <p class="hint" style="margin-top:-4px;">If set, no one can stake after this time — you can still resolve whenever the outcome's known.</p>
 
         <div class="error" id="bet-error"></div>
         <button type="submit">Create question</button>
@@ -798,9 +802,25 @@ async function viewBetDetail(betId) {
   setTitle(bet.question);
   const user = getUser();
   const isLeader = group.leader_id === user.id;
+  const isCreator = bet.creator_id === user.id;
+  const canResolve = isLeader || isCreator;
+  const canDelete = (isLeader || isCreator) && bet.status === "open";
   const total = bet.option_totals.reduce((a, c) => a + c, 0);
   const countdown = bet.status === "open" && bet.closes_at ? formatCountdown(bet.closes_at) : null;
   const stakingClosed = bet.status !== "open" || (countdown && countdown.closed);
+  const canEdit = isCreator && bet.status === "open" && total === 0;
+
+  if (bet.status === "deleted") {
+    setApp(`
+      <a href="#/groups/${group.id}" class="row" style="gap:6px;color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;">${icon("arrowLeft", 15)} ${escapeHtml(group.name)}</a>
+      <div class="card empty-state">
+        ${icon("inbox", 28)}
+        <p>This question was deleted${bet.my_stakes.length ? " and your stake was refunded." : "."}</p>
+      </div>
+    `);
+    startPolling(group.id, group.latest_event_id, () => softRefresh(() => viewBetDetail(betId)));
+    return;
+  }
 
   maybeReactToResolution(bet, user);
 
@@ -867,16 +887,37 @@ async function viewBetDetail(betId) {
     <a href="#/groups/${group.id}" class="row" style="gap:6px;color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;">${icon("arrowLeft", 15)} ${escapeHtml(group.name)}</a>
 
     <div class="card">
-      <div class="row between" style="align-items:flex-start;">
-        <h1>${escapeHtml(bet.question)}</h1>
-        <span class="row" style="gap:6px;">
-          ${countdown ? `<span class="badge countdown${countdown.closed ? " closed" : ""}" data-closes-at="${bet.closes_at}">${icon("clock", 12)} ${countdown.text}</span>` : ""}
-          <span class="badge ${bet.status}">${bet.status === "open" ? icon("clock", 12) : icon("trophy", 12)} ${bet.status}</span>
-        </span>
+      <div id="bet-view-mode">
+        <div class="row between" style="align-items:flex-start;">
+          <h1>${escapeHtml(bet.question)}</h1>
+          <span class="row" style="gap:6px;">
+            ${canEdit ? `<button class="ghost icon-btn" id="edit-bet-btn" title="Edit question">${icon("edit", 15)}</button>` : ""}
+            ${canDelete ? `<button class="ghost icon-btn" id="delete-bet-btn" title="Delete question">${icon("trash", 15)}</button>` : ""}
+            <span class="badge ${bet.status}">${bet.status === "open" ? icon("clock", 12) : icon("trophy", 12)} ${bet.status}</span>
+          </span>
+        </div>
+        ${countdown ? `
+          <div class="countdown-strip${countdown.closed ? " closed" : ""}">
+            ${icon("clock", 16)} <span class="countdown" data-closes-at="${bet.closes_at}">${countdown.text}</span> to place stakes
+          </div>
+        ` : ""}
+        <p class="muted" style="margin:2px 0 14px;">${fmtCoins(total)} coins staked total</p>
+        ${winnerBanner}
+        ${optionsHtml}
       </div>
-      <p class="muted" style="margin:2px 0 14px;">${fmtCoins(total)} coins staked total</p>
-      ${winnerBanner}
-      ${optionsHtml}
+
+      <div id="bet-edit-mode" class="stack" style="display:none;">
+        <input id="edit-question" value="${escapeHtml(bet.question)}" placeholder="What's the question?" />
+        <div id="edit-options-container" class="stack">
+          ${bet.options.map((o, i) => `<div class="option-input-row"><input name="edit-option" value="${escapeHtml(o)}" placeholder="Option ${i + 1}" required /></div>`).join("")}
+        </div>
+        <button type="button" class="secondary small" id="add-edit-option-btn" style="align-self:flex-start;">${icon("plus", 14)} Add option</button>
+        <div class="error" id="edit-bet-error"></div>
+        <div class="row">
+          <button type="button" id="save-edit-bet-btn">Save changes</button>
+          <button type="button" class="secondary" id="cancel-edit-bet-btn">Cancel</button>
+        </div>
+      </div>
     </div>
 
     ${payoutsHtml}
@@ -902,7 +943,7 @@ async function viewBetDetail(betId) {
     ${bet.status === "open" && stakingClosed ? `
       <div class="card">
         <h3 class="card-title">${icon("clock", 16)} Staking closed</h3>
-        <p class="muted" style="margin:0;">The deadline for staking on this question has passed. ${isLeader ? "Resolve it below once the outcome's known." : "Waiting on the leader to resolve it."}</p>
+        <p class="muted" style="margin:0;">The deadline for staking on this question has passed. ${canResolve ? "Resolve it below once the outcome's known." : "Waiting on the creator or leader to resolve it."}</p>
       </div>
     ` : ""}
 
@@ -911,7 +952,7 @@ async function viewBetDetail(betId) {
       ${myStakesHtml}
     </div>
 
-    ${isLeader && bet.status === "open" ? `
+    ${canResolve && bet.status === "open" ? `
       <div class="card">
         <h3 class="card-title">${icon("trophy", 16)} Resolve this bet</h3>
         <p class="muted" style="margin-top:-4px;">Pick the winning option. The entire pool splits among winners in proportion to their stake.</p>
@@ -987,6 +1028,55 @@ async function viewBetDetail(betId) {
         await viewBetDetail(betId);
       } catch (err) {
         document.getElementById("resolve-error").textContent = err.message;
+      }
+    };
+  }
+
+  const deleteBtn = document.getElementById("delete-bet-btn");
+  if (deleteBtn) {
+    deleteBtn.onclick = async () => {
+      if (!confirm(`Delete "${bet.question}"? Any stakes will be refunded. This cannot be undone.`)) return;
+      try {
+        await api(`/api/bets/${betId}`, { method: "DELETE" });
+        toast("Question deleted", "success");
+        location.hash = `#/groups/${group.id}`;
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    };
+  }
+
+  const editBtn = document.getElementById("edit-bet-btn");
+  if (editBtn) {
+    editBtn.onclick = () => {
+      document.getElementById("bet-view-mode").style.display = "none";
+      document.getElementById("bet-edit-mode").style.display = "";
+    };
+    document.getElementById("cancel-edit-bet-btn").onclick = () => {
+      document.getElementById("bet-edit-mode").style.display = "none";
+      document.getElementById("bet-view-mode").style.display = "";
+    };
+    document.getElementById("add-edit-option-btn").onclick = () => {
+      const container = document.getElementById("edit-options-container");
+      const row = document.createElement("div");
+      row.className = "option-input-row";
+      const n = container.children.length + 1;
+      row.innerHTML = `<input name="edit-option" placeholder="Option ${n}" required />
+        <button type="button" class="ghost icon-btn remove-option-btn" title="Remove">${icon("x", 15)}</button>`;
+      container.appendChild(row);
+      row.querySelector(".remove-option-btn").onclick = () => row.remove();
+    };
+    document.getElementById("save-edit-bet-btn").onclick = async () => {
+      const question = document.getElementById("edit-question").value.trim();
+      const options = Array.from(document.querySelectorAll('#edit-options-container input[name="edit-option"]'))
+        .map((el) => el.value.trim())
+        .filter(Boolean);
+      try {
+        await api(`/api/bets/${betId}`, { method: "PATCH", body: { question, options } });
+        toast("Question updated", "success");
+        await viewBetDetail(betId);
+      } catch (err) {
+        document.getElementById("edit-bet-error").textContent = err.message;
       }
     };
   }
