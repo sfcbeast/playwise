@@ -150,10 +150,11 @@ def list_my_groups(db: Session = Depends(get_db), user: User = Depends(get_curre
     result = []
     for m in memberships:
         group = m.group
+        parent_name = db.get(Group, group.parent_group_id).name if group.parent_group_id else None
         result.append(
             GroupSummary(
                 id=group.id, name=group.name, invite_code=group.invite_code, leader_id=group.leader_id,
-                is_member=True, my_balance=m.balance,
+                is_member=True, my_balance=m.balance, parent_group_name=parent_name,
             )
         )
     return result

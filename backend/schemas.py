@@ -39,6 +39,7 @@ class GroupSummary(BaseModel):
     leader_id: int
     is_member: bool
     my_balance: int
+    parent_group_name: Optional[str] = None
 
 
 class MemberBalance(BaseModel):

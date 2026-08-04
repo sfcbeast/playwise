@@ -533,7 +533,10 @@ async function viewGroups() {
         <a class="list-item clickable" href="#/groups/${g.id}">
           <div class="identity">
             ${avatarHtml(g.name)}
-            <div class="meta"><div class="primary">${escapeHtml(g.name)}</div></div>
+            <div class="meta">
+              <div class="primary">${escapeHtml(g.name)}</div>
+              ${g.parent_group_name ? `<div class="secondary">↳ inside ${escapeHtml(g.parent_group_name)}</div>` : ""}
+            </div>
           </div>
           <span class="amount">${fmtCoins(g.my_balance)}</span>
         </a>
@@ -780,18 +783,20 @@ async function viewGroupDetail(groupId) {
           <p class="hint" style="margin:0;">If set, no one can stake after this time — you can still resolve whenever the outcome's known.</p>
         </div>
 
-        ${membersExceptMe.length ? `
-          <div class="incognito-section stack">
-            <label class="field-label" style="color:var(--accent-2);display:flex;align-items:center;gap:6px;">
-              <input type="checkbox" id="incognito-toggle" style="width:auto;" />
-              ${icon("eyeOff", 14)} Incognito question (optional)
-            </label>
+        <div class="incognito-section stack">
+          <label class="field-label" style="color:var(--accent-2);display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="incognito-toggle" style="width:auto;" ${membersExceptMe.length ? "" : "disabled"} />
+            ${icon("eyeOff", 14)} Incognito question (optional)
+          </label>
+          ${membersExceptMe.length ? `
             <div id="incognito-members" class="incognito-checklist" style="display:none;">
               ${membersExceptMe.map((m) => `<label><input type="checkbox" name="hidden_from" value="${m.user_id}" /> ${escapeHtml(m.display_name)}</label>`).join("")}
             </div>
             <p class="hint" style="margin:0;">Selected members won't be able to see this question exists at all — not in the list, not in notifications.</p>
-          </div>
-        ` : ""}
+          ` : `
+            <p class="hint" style="margin:0;">Invite other members to this group before you can hide a question from anyone.</p>
+          `}
+        </div>
 
         <div class="error" id="bet-error"></div>
         <button type="submit">Create question</button>
@@ -945,9 +950,10 @@ async function viewGroupDetail(groupId) {
   });
 
   const incognitoToggle = document.getElementById("incognito-toggle");
-  if (incognitoToggle) {
+  const incognitoMembers = document.getElementById("incognito-members");
+  if (incognitoToggle && incognitoMembers) {
     incognitoToggle.onchange = () => {
-      document.getElementById("incognito-members").style.display = incognitoToggle.checked ? "" : "none";
+      incognitoMembers.style.display = incognitoToggle.checked ? "" : "none";
     };
   }
 
