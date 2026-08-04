@@ -57,6 +57,7 @@ class BetSummary(BaseModel):
     creator_id: int
     option_totals: List[int]
     closes_at: Optional[datetime.datetime]
+    hidden_from_names: List[str]
     created_at: datetime.datetime
 
 
@@ -69,6 +70,7 @@ class GroupDetail(BaseModel):
     parent_group_id: Optional[int]
     parent_group_name: Optional[str]
     subgroups: List[GroupSummary]
+    invitable_members: List[MemberBalance]
     members: List[MemberBalance]
     bets: List[BetSummary]
     pending_topups: List["TopUpRequestOut"]
@@ -93,6 +95,7 @@ class BetCreateRequest(BaseModel):
     question: str = Field(min_length=1, max_length=280)
     options: List[str] = Field(min_length=2, max_length=8)
     closes_at: Optional[datetime.datetime] = None
+    hidden_from_user_ids: Optional[List[int]] = None
 
 
 class StakeCreateRequest(BaseModel):
@@ -134,6 +137,7 @@ class BetDetail(BaseModel):
     creator_id: int
     option_totals: List[int]
     closes_at: Optional[datetime.datetime]
+    hidden_from_names: List[str]
     my_stakes: List[StakeOut]
     stakes: List[StakeOut]
     payouts: List[PayoutOut]

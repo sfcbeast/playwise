@@ -99,6 +99,17 @@ class Stake(Base):
     created_at = Column(DateTime, default=utcnow)
 
 
+class BetHiddenFrom(Base):
+    """Incognito questions: rows here mean the named user can't see this
+    bet at all -- not in lists, not in the event feed, not by direct id."""
+    __tablename__ = "bet_hidden_from"
+    __table_args__ = (UniqueConstraint("bet_id", "user_id", name="uq_bet_hidden_from"),)
+
+    id = Column(Integer, primary_key=True)
+    bet_id = Column(Integer, ForeignKey("bets.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+
 class GroupEvent(Base):
     __tablename__ = "group_events"
 

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from backend.auth import get_current_user
 from backend.db import get_db
 from backend.helpers import get_group_or_404, get_membership_or_403, log_event, require_creator_or_leader
-from backend.models import Bet, Membership, Stake, Transaction, User
+from backend.models import Bet, BetHiddenFrom, Membership, Stake, Transaction, User
 from backend.schemas import (
     BetCreateRequest,
     BetDetail,
@@ -33,6 +33,24 @@ def _get_bet_or_404(db: Session, bet_id: int) -> Bet:
     if bet is None:
         raise HTTPException(status_code=404, detail="Bet not found")
     return bet
+
+
+def _ensure_visible(db: Session, bet_id: int, user_id: int):
+    """Incognito questions: a blinded user gets exactly the same 404 as a
+    genuinely nonexistent bet, everywhere -- lists, direct fetch, and every
+    mutating endpoint below (checked before any mutation happens, not just
+    on the final response, so a guessed bet id can't be used to sneak a
+    stake in past the block)."""
+    hidden = (
+        db.query(BetHiddenFrom).filter(BetHiddenFrom.bet_id == bet_id, BetHiddenFrom.user_id == user_id).first()
+    )
+    if hidden:
+        raise HTTPException(status_code=404, detail="Bet not found")
+
+
+def _hidden_from_names(db: Session, bet_id: int):
+    rows = db.query(BetHiddenFrom).filter(BetHiddenFrom.bet_id == bet_id).all()
+    return [db.get(User, r.user_id).display_name for r in rows]
 
 
 def _payouts(db: Session, bet_id: int):
@@ -65,11 +83,18 @@ def create_bet(
         if closes_at <= datetime.datetime.utcnow():
             raise HTTPException(status_code=400, detail="Closing time must be in the future")
 
+    hidden_from_ids = set(body.hidden_from_user_ids or [])
+    hidden_from_ids.discard(user.id)  # can't hide your own question from yourself
+    for uid in hidden_from_ids:
+        get_membership_or_403(db, group_id, uid)
+
     bet = Bet(
         group_id=group_id, creator_id=user.id, question=body.question, options=body.options, closes_at=closes_at
     )
     db.add(bet)
     db.flush()
+    for uid in hidden_from_ids:
+        db.add(BetHiddenFrom(bet_id=bet.id, user_id=uid))
     log_event(
         db, group_id, user.id, "bet_created",
         f'{user.display_name} posted a new question: "{body.question}"',
@@ -80,7 +105,8 @@ def create_bet(
     return BetSummary(
         id=bet.id, question=bet.question, options=bet.options, status=bet.status,
         winning_option=bet.winning_option, creator_id=bet.creator_id,
-        option_totals=[0] * len(bet.options), closes_at=bet.closes_at, created_at=bet.created_at,
+        option_totals=[0] * len(bet.options), closes_at=bet.closes_at,
+        hidden_from_names=_hidden_from_names(db, bet.id), created_at=bet.created_at,
     )
 
 
@@ -88,6 +114,7 @@ def create_bet(
 def get_bet(bet_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     bet = _get_bet_or_404(db, bet_id)
     get_membership_or_403(db, bet.group_id, user.id)
+    _ensure_visible(db, bet_id, user.id)
 
     all_stakes = db.query(Stake).filter(Stake.bet_id == bet_id).all()
     stakes_out = []
@@ -103,6 +130,7 @@ def get_bet(bet_id: int, db: Session = Depends(get_db), user: User = Depends(get
         id=bet.id, group_id=bet.group_id, question=bet.question, options=bet.options, status=bet.status,
         winning_option=bet.winning_option, creator_id=bet.creator_id,
         option_totals=_option_totals(db, bet), closes_at=bet.closes_at,
+        hidden_from_names=_hidden_from_names(db, bet_id),
         my_stakes=my_stakes_out, stakes=stakes_out,
         payouts=_payouts(db, bet_id) if bet.status == "resolved" else [],
     )
@@ -114,6 +142,7 @@ def edit_bet(
 ):
     bet = _get_bet_or_404(db, bet_id)
     get_membership_or_403(db, bet.group_id, user.id)
+    _ensure_visible(db, bet_id, user.id)
 
     if user.id != bet.creator_id:
         raise HTTPException(status_code=403, detail="Only the question's creator can edit it")
@@ -134,6 +163,7 @@ def delete_bet(bet_id: int, db: Session = Depends(get_db), user: User = Depends(
     bet = _get_bet_or_404(db, bet_id)
     group = get_group_or_404(db, bet.group_id)
     get_membership_or_403(db, bet.group_id, user.id)
+    _ensure_visible(db, bet_id, user.id)
     require_creator_or_leader(bet, group, user.id)
 
     if bet.status != "open":
@@ -173,6 +203,7 @@ def place_stake(
 ):
     bet = _get_bet_or_404(db, bet_id)
     membership = get_membership_or_403(db, bet.group_id, user.id)
+    _ensure_visible(db, bet_id, user.id)
 
     if bet.status != "open":
         raise HTTPException(status_code=400, detail="This bet is no longer open")
@@ -206,6 +237,7 @@ def retract_stake(
 ):
     bet = _get_bet_or_404(db, bet_id)
     membership = get_membership_or_403(db, bet.group_id, user.id)
+    _ensure_visible(db, bet_id, user.id)
 
     stake = db.get(Stake, stake_id)
     if stake is None or stake.bet_id != bet_id:
@@ -238,6 +270,7 @@ def resolve_bet(
 ):
     bet = _get_bet_or_404(db, bet_id)
     group = get_group_or_404(db, bet.group_id)
+    _ensure_visible(db, bet_id, user.id)
     require_creator_or_leader(bet, group, user.id)
 
     if bet.status != "open":

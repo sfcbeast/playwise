@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from backend.auth import get_current_user
 from backend.db import get_db
 from backend.helpers import get_group_or_404, get_membership_or_403, log_event
-from backend.models import Bet, Group, GroupEvent, Membership, Stake, TopUpRequest, User
+from backend.models import Bet, BetHiddenFrom, Group, GroupEvent, Membership, Stake, TopUpRequest, User
 from backend.schemas import (
     BetSummary,
     EventOut,
@@ -25,6 +25,17 @@ def _option_totals(db: Session, bet: Bet):
     for stake in db.query(Stake).filter(Stake.bet_id == bet.id).all():
         totals[stake.option_index] += stake.amount
     return totals
+
+
+def _hidden_bet_ids_for(db: Session, user_id: int):
+    """Incognito questions: bet ids this user must not see anywhere --
+    lists, live event notifications, none of it."""
+    return {h.bet_id for h in db.query(BetHiddenFrom).filter(BetHiddenFrom.user_id == user_id).all()}
+
+
+def _hidden_from_names(db: Session, bet_id: int):
+    rows = db.query(BetHiddenFrom).filter(BetHiddenFrom.bet_id == bet_id).all()
+    return [db.get(User, r.user_id).display_name for r in rows]
 
 
 @router.post("", response_model=GroupSummary)
@@ -125,13 +136,17 @@ def get_group(group_id: int, db: Session = Depends(get_db), user: User = Depends
             )
         )
 
+    hidden_bet_ids = _hidden_bet_ids_for(db, user.id)
     bets = []
     for bet in db.query(Bet).filter(Bet.group_id == group_id).order_by(Bet.created_at.desc()).all():
+        if bet.id in hidden_bet_ids:
+            continue
         bets.append(
             BetSummary(
                 id=bet.id, question=bet.question, options=bet.options, status=bet.status,
                 winning_option=bet.winning_option, creator_id=bet.creator_id,
-                option_totals=_option_totals(db, bet), closes_at=bet.closes_at, created_at=bet.created_at,
+                option_totals=_option_totals(db, bet), closes_at=bet.closes_at,
+                hidden_from_names=_hidden_from_names(db, bet.id), created_at=bet.created_at,
             )
         )
 
@@ -167,17 +182,52 @@ def get_group(group_id: int, db: Session = Depends(get_db), user: User = Depends
         )
 
     parent_group_name = None
+    invitable_members = []
     if group.parent_group_id is not None:
         parent = db.get(Group, group.parent_group_id)
         parent_group_name = parent.name if parent else None
+        member_ids = {m.user_id for m in db.query(Membership).filter(Membership.group_id == group_id).all()}
+        parent_members = db.query(Membership).filter(Membership.group_id == group.parent_group_id).all()
+        for pm in parent_members:
+            if pm.user_id not in member_ids:
+                invitable_members.append(
+                    MemberBalance(
+                        user_id=pm.user_id, display_name=pm.user.display_name, username=pm.user.username,
+                        balance=pm.balance,
+                    )
+                )
 
     return GroupDetail(
         id=group.id, name=group.name, invite_code=group.invite_code, leader_id=group.leader_id,
         my_balance=my_membership.balance, parent_group_id=group.parent_group_id,
-        parent_group_name=parent_group_name, subgroups=subgroups,
+        parent_group_name=parent_group_name, subgroups=subgroups, invitable_members=invitable_members,
         members=members, bets=bets, pending_topups=pending_topups,
         latest_event_id=latest_event_id,
     )
+
+
+@router.post("/{group_id}/invite/{user_id}", response_model=dict)
+def invite_to_subgroup(
+    group_id: int, user_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    """Push-based counterpart to /join: any current sub-group member can
+    directly add another parent-group member, rather than relying on that
+    person discovering and self-joining."""
+    group = get_group_or_404(db, group_id)
+    if group.parent_group_id is None:
+        raise HTTPException(status_code=403, detail="Only sub-groups support direct invites")
+    get_membership_or_403(db, group_id, user.id)
+    get_membership_or_403(db, group.parent_group_id, user_id)
+
+    existing = db.query(Membership).filter(Membership.group_id == group_id, Membership.user_id == user_id).first()
+    if existing is not None:
+        raise HTTPException(status_code=400, detail="That person is already in this sub-group")
+
+    invitee = db.get(User, user_id)
+    db.add(Membership(user_id=user_id, group_id=group_id, balance=0))
+    log_event(db, group_id, user.id, "member_invited", f"{user.display_name} invited {invitee.display_name} to join")
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/{group_id}/events", response_model=list[EventOut])
@@ -187,6 +237,7 @@ def list_events(
     get_group_or_404(db, group_id)
     get_membership_or_403(db, group_id, user.id)
 
+    hidden_bet_ids = _hidden_bet_ids_for(db, user.id)
     events = (
         db.query(GroupEvent)
         .filter(GroupEvent.group_id == group_id, GroupEvent.id > after_id)
@@ -196,6 +247,8 @@ def list_events(
     )
     out = []
     for e in events:
+        if e.ref_bet_id is not None and e.ref_bet_id in hidden_bet_ids:
+            continue
         actor = db.get(User, e.actor_id)
         out.append(
             EventOut(

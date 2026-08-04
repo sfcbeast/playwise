@@ -18,6 +18,7 @@ const ICON_PATHS = {
   edit: '<path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3Z"/>',
   trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
   flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>',
+  eyeOff: '<path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>',
 };
 
 function icon(name, size = 18) {
@@ -600,6 +601,7 @@ async function viewGroupDetail(groupId) {
   const leaderVoteChoices = otherMembers
     .map((m) => `<option value="${m.user_id}">${escapeHtml(m.display_name)}</option>`)
     .join("");
+  const membersExceptMe = group.members.filter((m) => m.user_id !== user.id);
 
   const membersHtml = group.members
     .slice()
@@ -668,6 +670,7 @@ async function viewGroupDetail(groupId) {
           </div>
         </div>
         <span class="row" style="gap:6px;">
+          ${b.hidden_from_names.length ? `<span class="badge incognito" title="Hidden from ${escapeHtml(b.hidden_from_names.join(", "))}">${icon("eyeOff", 12)} incognito</span>` : ""}
           ${countdown ? `<span class="badge countdown${countdown.closed ? " closed" : ""}" data-closes-at="${b.closes_at}">${icon("clock", 12)} ${countdown.text}</span>` : ""}
           <span class="badge ${b.status}">${b.status === "open" ? icon("clock", 12) : icon("trophy", 12)} ${b.status}</span>
         </span>
@@ -737,6 +740,18 @@ async function viewGroupDetail(groupId) {
       <div class="error" id="create-subgroup-error"></div>
     </div>
 
+    ${group.invitable_members.length ? `
+      <div class="card">
+        <h3 class="card-title">${icon("users", 16)} Invite from ${escapeHtml(group.parent_group_name)}</h3>
+        ${group.invitable_members.map((m) => `
+          <div class="list-item">
+            <div class="identity">${avatarHtml(m.display_name)}<span class="primary">${escapeHtml(m.display_name)}</span></div>
+            <button class="secondary small" data-invite-member="${m.user_id}">Invite</button>
+          </div>
+        `).join("")}
+      </div>
+    ` : ""}
+
     <div class="card">
       <h3 class="card-title">${icon("bolt", 16)} New question</h3>
       <form id="bet-form" class="stack">
@@ -760,6 +775,19 @@ async function viewGroupDetail(groupId) {
           </div>
           <p class="hint" style="margin:0;">If set, no one can stake after this time — you can still resolve whenever the outcome's known.</p>
         </div>
+
+        ${membersExceptMe.length ? `
+          <div class="incognito-section stack">
+            <label class="field-label" style="color:var(--accent-2);display:flex;align-items:center;gap:6px;">
+              <input type="checkbox" id="incognito-toggle" style="width:auto;" />
+              ${icon("eyeOff", 14)} Incognito question (optional)
+            </label>
+            <div id="incognito-members" class="incognito-checklist" style="display:none;">
+              ${membersExceptMe.map((m) => `<label><input type="checkbox" name="hidden_from" value="${m.user_id}" /> ${escapeHtml(m.display_name)}</label>`).join("")}
+            </div>
+            <p class="hint" style="margin:0;">Selected members won't be able to see this question exists at all — not in the list, not in notifications.</p>
+          </div>
+        ` : ""}
 
         <div class="error" id="bet-error"></div>
         <button type="submit">Create question</button>
@@ -831,6 +859,18 @@ async function viewGroupDetail(groupId) {
     };
   });
 
+  document.querySelectorAll("[data-invite-member]").forEach((btn) => {
+    btn.onclick = async () => {
+      try {
+        await api(`/api/groups/${groupId}/invite/${btn.dataset.inviteMember}`, { method: "POST" });
+        toast("Invited", "success");
+        await viewGroupDetail(groupId);
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    };
+  });
+
   document.getElementById("topup-form").onsubmit = async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
@@ -873,6 +913,13 @@ async function viewGroupDetail(groupId) {
     };
   });
 
+  const incognitoToggle = document.getElementById("incognito-toggle");
+  if (incognitoToggle) {
+    incognitoToggle.onchange = () => {
+      document.getElementById("incognito-members").style.display = incognitoToggle.checked ? "" : "none";
+    };
+  }
+
   document.getElementById("bet-form").onsubmit = async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
@@ -880,10 +927,13 @@ async function viewGroupDetail(groupId) {
     const options = f.getAll("option").map((o) => o.trim()).filter(Boolean);
     const closesAtLocal = f.get("closes_at");
     const closes_at = closesAtLocal ? new Date(closesAtLocal).toISOString() : null;
+    const hidden_from_user_ids = incognitoToggle && incognitoToggle.checked
+      ? f.getAll("hidden_from").map(Number)
+      : null;
     try {
       const bet = await api(`/api/groups/${groupId}/bets`, {
         method: "POST",
-        body: { question, options, closes_at },
+        body: { question, options, closes_at, hidden_from_user_ids },
       });
       toast("Question posted", "success");
       location.hash = `#/bets/${bet.id}`;
@@ -1024,6 +1074,7 @@ async function viewBetDetail(betId) {
           <span class="row" style="gap:6px;">
             ${canEdit ? `<button class="ghost icon-btn" id="edit-bet-btn" title="Edit question">${icon("edit", 15)}</button>` : ""}
             ${canDelete ? `<button class="ghost icon-btn" id="delete-bet-btn" title="Delete question">${icon("trash", 15)}</button>` : ""}
+            ${bet.hidden_from_names.length ? `<span class="badge incognito">${icon("eyeOff", 12)} hidden from ${escapeHtml(bet.hidden_from_names.join(", "))}</span>` : ""}
             <span class="badge ${bet.status}">${bet.status === "open" ? icon("clock", 12) : icon("trophy", 12)} ${bet.status}</span>
           </span>
         </div>
