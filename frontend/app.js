@@ -973,7 +973,10 @@ async function viewBetDetail(betId) {
     ? bet.my_stakes.map((s) => `
         <div class="list-item">
           <div class="identity"><span class="swatch" style="background:${optionColor(s.option_index)};width:9px;height:9px;border-radius:3px;"></span><span class="primary">${escapeHtml(bet.options[s.option_index])}</span></div>
-          <span class="amount">${fmtCoins(s.amount)}</span>
+          <span class="row" style="gap:8px;">
+            <span class="amount">${fmtCoins(s.amount)}</span>
+            ${bet.status === "open" ? `<button class="ghost icon-btn" data-retract-stake="${s.id}" title="Retract this stake">${icon("x", 14)}</button>` : ""}
+          </span>
         </div>
       `).join("")
     : `<div class="empty-state" style="padding:14px 10px;">${icon("inbox", 22)}<p>You haven't staked on this yet.</p></div>`;
@@ -1239,6 +1242,19 @@ async function viewBetDetail(betId) {
     };
   }
   wireVoteBallots(() => viewBetDetail(betId));
+
+  document.querySelectorAll("[data-retract-stake]").forEach((btn) => {
+    btn.onclick = async () => {
+      if (!confirm("Retract this stake? Your coins will be refunded.")) return;
+      try {
+        await api(`/api/bets/${betId}/stakes/${btn.dataset.retractStake}`, { method: "DELETE" });
+        toast("Stake retracted", "success");
+        await viewBetDetail(betId);
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    };
+  });
 
   startPolling(group.id, group.latest_event_id, () => softRefresh(() => viewBetDetail(betId)));
 }

@@ -94,7 +94,7 @@ def get_bet(bet_id: int, db: Session = Depends(get_db), user: User = Depends(get
     my_stakes_out = []
     for s in all_stakes:
         stake_user = db.get(User, s.user_id)
-        out = StakeOut(user_id=s.user_id, display_name=stake_user.display_name, option_index=s.option_index, amount=s.amount)
+        out = StakeOut(id=s.id, user_id=s.user_id, display_name=stake_user.display_name, option_index=s.option_index, amount=s.amount)
         stakes_out.append(out)
         if s.user_id == user.id:
             my_stakes_out.append(out)
@@ -196,6 +196,38 @@ def place_stake(
         f'{user.display_name} staked {body.amount} coins on "{bet.options[body.option_index]}" for "{bet.question}"',
         ref_bet_id=bet.id,
     )
+    db.commit()
+    return get_bet(bet_id, db, user)
+
+
+@router.delete("/api/bets/{bet_id}/stakes/{stake_id}", response_model=BetDetail)
+def retract_stake(
+    bet_id: int, stake_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    bet = _get_bet_or_404(db, bet_id)
+    membership = get_membership_or_403(db, bet.group_id, user.id)
+
+    stake = db.get(Stake, stake_id)
+    if stake is None or stake.bet_id != bet_id:
+        raise HTTPException(status_code=404, detail="Stake not found")
+    if stake.user_id != user.id:
+        raise HTTPException(status_code=403, detail="You can only retract your own stake")
+    if bet.status != "open":
+        raise HTTPException(status_code=400, detail="Can't retract a stake once the bet is resolved")
+
+    membership.balance += stake.amount
+    db.add(
+        Transaction(
+            group_id=bet.group_id, user_id=user.id, type="refund", amount=stake.amount,
+            balance_after=membership.balance, ref_bet_id=bet.id,
+        )
+    )
+    log_event(
+        db, bet.group_id, user.id, "stake_retracted",
+        f'{user.display_name} retracted a {stake.amount}-coin stake on "{bet.options[stake.option_index]}" for "{bet.question}"',
+        ref_bet_id=bet.id,
+    )
+    db.delete(stake)
     db.commit()
     return get_bet(bet_id, db, user)
 

@@ -110,6 +110,7 @@ class BetEditRequest(BaseModel):
 
 
 class StakeOut(BaseModel):
+    id: int
     user_id: int
     display_name: str
     option_index: int
