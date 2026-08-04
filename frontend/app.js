@@ -484,7 +484,7 @@ function viewRegister() {
       <div class="card">
         <div class="brand-mark">${icon("bolt", 20)}</div>
         <h1 class="center">Create your account</h1>
-        <p class="tagline center">Join a group and start predicting.</p>
+        <p class="tagline center">Join a group and start predicting. Play money only — never real cash.</p>
         <form id="register-form" class="stack">
           <input name="display_name" placeholder="Display name" required />
           <input name="username" placeholder="Username" autocomplete="username" required minlength="3" />
@@ -614,7 +614,10 @@ async function viewGroupDetail(groupId) {
             <div class="primary">${escapeHtml(m.display_name)}${m.user_id === group.leader_id ? ' <span class="badge leader">leader</span>' : ""}</div>
           </div>
         </div>
-        <span class="amount">${fmtCoins(m.balance)}</span>
+        <span class="row" style="gap:8px;">
+          <span class="amount">${fmtCoins(m.balance)}</span>
+          ${isLeader && m.user_id !== group.leader_id ? `<button class="ghost icon-btn" data-kick-member="${m.user_id}" title="Remove from group">${icon("x", 14)}</button>` : ""}
+        </span>
       </div>
     `).join("");
 
@@ -726,6 +729,7 @@ async function viewGroupDetail(groupId) {
         </form>
         <div class="error" id="leader-vote-error"></div>
       ` : ""}
+      ${!isLeader ? `<button class="ghost small" id="leave-group-btn" style="margin-top:10px;color:var(--negative);">${icon("logout", 14)} Leave group</button>` : ""}
     </div>
 
     ${openLeaderVote ? voteCardHtml(openLeaderVote) : ""}
@@ -864,6 +868,33 @@ async function viewGroupDetail(groupId) {
       try {
         await api(`/api/groups/${groupId}/invite/${btn.dataset.inviteMember}`, { method: "POST" });
         toast("Invited", "success");
+        await viewGroupDetail(groupId);
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    };
+  });
+
+  const leaveBtn = document.getElementById("leave-group-btn");
+  if (leaveBtn) {
+    leaveBtn.onclick = async () => {
+      if (!confirm(`Leave "${group.name}"? Any open stakes will be refunded first.`)) return;
+      try {
+        await api(`/api/groups/${groupId}/leave`, { method: "POST" });
+        toast("Left the group", "success");
+        location.hash = "#/groups";
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    };
+  }
+
+  document.querySelectorAll("[data-kick-member]").forEach((btn) => {
+    btn.onclick = async () => {
+      if (!confirm("Remove this person from the group? Any open stakes of theirs will be refunded.")) return;
+      try {
+        await api(`/api/groups/${groupId}/kick/${btn.dataset.kickMember}`, { method: "POST" });
+        toast("Member removed", "success");
         await viewGroupDetail(groupId);
       } catch (err) {
         toast(err.message, "error");

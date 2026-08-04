@@ -60,15 +60,13 @@ def approve_topup(
     group = get_group_or_404(db, group_id)
     require_leader(group, user.id)
 
-    req = db.get(TopUpRequest, request_id)
+    req = db.get(TopUpRequest, request_id, with_for_update=True)
     if req is None or req.group_id != group_id:
         raise HTTPException(status_code=404, detail="Top-up request not found")
     if req.status != "pending":
         raise HTTPException(status_code=400, detail="Request already resolved")
 
-    membership = (
-        db.query(Membership).filter(Membership.group_id == group_id, Membership.user_id == req.user_id).first()
-    )
+    membership = get_membership_or_403(db, group_id, req.user_id, for_update=True)
     membership.balance += req.amount
     req.status = "approved"
     req.resolved_at = datetime.datetime.utcnow()
@@ -100,7 +98,7 @@ def reject_topup(
     group = get_group_or_404(db, group_id)
     require_leader(group, user.id)
 
-    req = db.get(TopUpRequest, request_id)
+    req = db.get(TopUpRequest, request_id, with_for_update=True)
     if req is None or req.group_id != group_id:
         raise HTTPException(status_code=404, detail="Top-up request not found")
     if req.status != "pending":

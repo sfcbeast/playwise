@@ -13,12 +13,16 @@ def get_group_or_404(db: Session, group_id: int) -> Group:
     return group
 
 
-def get_membership_or_403(db: Session, group_id: int, user_id: int) -> Membership:
-    membership = (
-        db.query(Membership)
-        .filter(Membership.group_id == group_id, Membership.user_id == user_id)
-        .first()
-    )
+def get_membership_or_403(db: Session, group_id: int, user_id: int, for_update: bool = False) -> Membership:
+    """for_update=True takes a row lock (SELECT ... FOR UPDATE on Postgres;
+    a harmless no-op on SQLite, which has no row-level locking) so a
+    concurrent request touching the same balance has to wait rather than
+    racing -- use it on every path that reads a balance and then writes it
+    back (stakes, top-ups, payouts, votes), not on read-only lookups."""
+    query = db.query(Membership).filter(Membership.group_id == group_id, Membership.user_id == user_id)
+    if for_update:
+        query = query.with_for_update()
+    membership = query.first()
     if membership is None:
         raise HTTPException(status_code=403, detail="You are not a member of this group")
     return membership

@@ -1,17 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.auth import create_access_token, hash_password, verify_password
 from backend.db import get_db
 from backend.models import User
+from backend.rate_limit import rate_limit
 from backend.schemas import LoginRequest, RegisterRequest, TokenResponse
 
 router = APIRouter(tags=["auth"])
 
 
 @router.post("/api/register", response_model=TokenResponse)
-def register(body: RegisterRequest, db: Session = Depends(get_db)):
+def register(body: RegisterRequest, request: Request, db: Session = Depends(get_db)):
+    rate_limit(request, "register", max_attempts=8, window_seconds=3600)
     user = User(
         username=body.username,
         password_hash=hash_password(body.password),
@@ -31,7 +33,8 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/api/login", response_model=TokenResponse)
-def login(body: LoginRequest, db: Session = Depends(get_db)):
+def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    rate_limit(request, "login", max_attempts=15, window_seconds=300)
     user = db.query(User).filter(User.username == body.username).first()
     if user is None or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")

@@ -28,8 +28,8 @@ def _option_totals(db: Session, bet: Bet):
     return totals
 
 
-def _get_bet_or_404(db: Session, bet_id: int) -> Bet:
-    bet = db.get(Bet, bet_id)
+def _get_bet_or_404(db: Session, bet_id: int, for_update: bool = False) -> Bet:
+    bet = db.get(Bet, bet_id, with_for_update=for_update)
     if bet is None:
         raise HTTPException(status_code=404, detail="Bet not found")
     return bet
@@ -160,7 +160,7 @@ def edit_bet(
 
 @router.delete("/api/bets/{bet_id}", response_model=dict)
 def delete_bet(bet_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    bet = _get_bet_or_404(db, bet_id)
+    bet = _get_bet_or_404(db, bet_id, for_update=True)
     group = get_group_or_404(db, bet.group_id)
     get_membership_or_403(db, bet.group_id, user.id)
     _ensure_visible(db, bet_id, user.id)
@@ -171,11 +171,7 @@ def delete_bet(bet_id: int, db: Session = Depends(get_db), user: User = Depends(
 
     all_stakes = db.query(Stake).filter(Stake.bet_id == bet_id).all()
     for s in all_stakes:
-        membership = (
-            db.query(Membership)
-            .filter(Membership.group_id == bet.group_id, Membership.user_id == s.user_id)
-            .first()
-        )
+        membership = get_membership_or_403(db, bet.group_id, s.user_id, for_update=True)
         membership.balance += s.amount
         db.add(
             Transaction(
@@ -201,8 +197,8 @@ def delete_bet(bet_id: int, db: Session = Depends(get_db), user: User = Depends(
 def place_stake(
     bet_id: int, body: StakeCreateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
-    bet = _get_bet_or_404(db, bet_id)
-    membership = get_membership_or_403(db, bet.group_id, user.id)
+    bet = _get_bet_or_404(db, bet_id, for_update=True)
+    membership = get_membership_or_403(db, bet.group_id, user.id, for_update=True)
     _ensure_visible(db, bet_id, user.id)
 
     if bet.status != "open":
@@ -235,8 +231,8 @@ def place_stake(
 def retract_stake(
     bet_id: int, stake_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
-    bet = _get_bet_or_404(db, bet_id)
-    membership = get_membership_or_403(db, bet.group_id, user.id)
+    bet = _get_bet_or_404(db, bet_id, for_update=True)
+    membership = get_membership_or_403(db, bet.group_id, user.id, for_update=True)
     _ensure_visible(db, bet_id, user.id)
 
     stake = db.get(Stake, stake_id)
@@ -268,7 +264,7 @@ def retract_stake(
 def resolve_bet(
     bet_id: int, body: ResolveRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
-    bet = _get_bet_or_404(db, bet_id)
+    bet = _get_bet_or_404(db, bet_id, for_update=True)
     group = get_group_or_404(db, bet.group_id)
     _ensure_visible(db, bet_id, user.id)
     require_creator_or_leader(bet, group, user.id)
@@ -289,11 +285,7 @@ def resolve_bet(
     if winning_pool == 0:
         # Nobody picked the winning option: nothing to distribute, refund every stake.
         for s in all_stakes:
-            membership = (
-                db.query(Membership)
-                .filter(Membership.group_id == bet.group_id, Membership.user_id == s.user_id)
-                .first()
-            )
+            membership = get_membership_or_403(db, bet.group_id, s.user_id, for_update=True)
             membership.balance += s.amount
             db.add(
                 Transaction(
@@ -306,11 +298,7 @@ def resolve_bet(
         # Floor division means a few leftover coins may go unallocated rather than risk overpaying.
         for s in winning_stakes:
             payout = s.amount * total_pool // winning_pool
-            membership = (
-                db.query(Membership)
-                .filter(Membership.group_id == bet.group_id, Membership.user_id == s.user_id)
-                .first()
-            )
+            membership = get_membership_or_403(db, bet.group_id, s.user_id, for_update=True)
             membership.balance += payout
             winner_amounts[s.user_id] = winner_amounts.get(s.user_id, 0) + payout
             db.add(

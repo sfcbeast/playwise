@@ -1,11 +1,13 @@
+import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.auth import get_current_user
 from backend.db import get_db
-from backend.helpers import get_group_or_404, get_membership_or_403, log_event
-from backend.models import Bet, BetHiddenFrom, Group, GroupEvent, Membership, Stake, TopUpRequest, User
+from backend.helpers import get_group_or_404, get_membership_or_403, log_event, require_leader
+from backend.models import Bet, BetHiddenFrom, Group, GroupEvent, Membership, Stake, TopUpRequest, Transaction, User
 from backend.schemas import (
     BetSummary,
     EventOut,
@@ -36,6 +38,40 @@ def _hidden_bet_ids_for(db: Session, user_id: int):
 def _hidden_from_names(db: Session, bet_id: int):
     rows = db.query(BetHiddenFrom).filter(BetHiddenFrom.bet_id == bet_id).all()
     return [db.get(User, r.user_id).display_name for r in rows]
+
+
+def _remove_member(db: Session, group_id: int, membership: Membership):
+    """Shared by leave/kick: refund any stakes the person has on still-open
+    bets (otherwise a resolution later would try to pay out to a membership
+    row that no longer exists), auto-reject their pending top-up requests
+    for the same reason, then drop their membership."""
+    user_id = membership.user_id
+    open_stakes = (
+        db.query(Stake)
+        .join(Bet, Stake.bet_id == Bet.id)
+        .filter(Stake.user_id == user_id, Bet.group_id == group_id, Bet.status == "open")
+        .all()
+    )
+    for s in open_stakes:
+        membership.balance += s.amount
+        db.add(
+            Transaction(
+                group_id=group_id, user_id=user_id, type="refund", amount=s.amount,
+                balance_after=membership.balance, ref_bet_id=s.bet_id,
+            )
+        )
+        db.delete(s)
+
+    pending = (
+        db.query(TopUpRequest)
+        .filter(TopUpRequest.group_id == group_id, TopUpRequest.user_id == user_id, TopUpRequest.status == "pending")
+        .all()
+    )
+    for req in pending:
+        req.status = "rejected"
+        req.resolved_at = datetime.datetime.utcnow()
+
+    db.delete(membership)
 
 
 @router.post("", response_model=GroupSummary)
@@ -204,6 +240,41 @@ def get_group(group_id: int, db: Session = Depends(get_db), user: User = Depends
         members=members, bets=bets, pending_topups=pending_topups,
         latest_event_id=latest_event_id,
     )
+
+
+@router.post("/{group_id}/leave", response_model=dict)
+def leave_group(group_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    group = get_group_or_404(db, group_id)
+    membership = get_membership_or_403(db, group_id, user.id, for_update=True)
+
+    if group.leader_id == user.id:
+        raise HTTPException(
+            status_code=400,
+            detail="Leaders can't leave -- start a vote to change leader first (Members section)",
+        )
+
+    log_event(db, group_id, user.id, "member_left", f"{user.display_name} left the group")
+    _remove_member(db, group_id, membership)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/{group_id}/kick/{user_id}", response_model=dict)
+def kick_member(
+    group_id: int, user_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    group = get_group_or_404(db, group_id)
+    require_leader(group, user.id)
+
+    if user_id == user.id:
+        raise HTTPException(status_code=400, detail="You can't kick yourself -- use leave instead")
+
+    membership = get_membership_or_403(db, group_id, user_id, for_update=True)
+    kicked = db.get(User, user_id)
+    log_event(db, group_id, user.id, "member_kicked", f"{user.display_name} removed {kicked.display_name} from the group")
+    _remove_member(db, group_id, membership)
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/{group_id}/invite/{user_id}", response_model=dict)

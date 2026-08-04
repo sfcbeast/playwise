@@ -38,9 +38,7 @@ def _revert_resolution(db: Session, bet: Bet):
         .all()
     )
     for t in txns:
-        membership = (
-            db.query(Membership).filter(Membership.group_id == bet.group_id, Membership.user_id == t.user_id).first()
-        )
+        membership = get_membership_or_403(db, bet.group_id, t.user_id, for_update=True)
         membership.balance -= t.amount
         db.add(
             Transaction(
@@ -193,7 +191,13 @@ def list_votes(group_id: int, db: Session = Depends(get_db), user: User = Depend
         .all()
     )
     for v in votes:
-        _maybe_finalize(db, v, group, total)
+        if v.status == "open":
+            # Re-fetch under a row lock right before finalizing: a plain read
+            # (like the query above) doesn't stop two concurrent requests
+            # from both seeing "open" and both applying the outcome (e.g.
+            # double-reversing a disputed payout).
+            locked = db.get(GroupVote, v.id, with_for_update=True)
+            _maybe_finalize(db, locked, group, total)
     db.commit()
 
     return [_to_vote_out(db, v, user.id) for v in votes]
@@ -203,7 +207,7 @@ def list_votes(group_id: int, db: Session = Depends(get_db), user: User = Depend
 def cast_ballot(
     vote_id: int, body: BallotRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
-    vote = db.get(GroupVote, vote_id)
+    vote = db.get(GroupVote, vote_id, with_for_update=True)
     if vote is None:
         raise HTTPException(status_code=404, detail="Vote not found")
     group = get_group_or_404(db, vote.group_id)
