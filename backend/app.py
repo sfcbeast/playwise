@@ -3,10 +3,10 @@ import os
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from backend.db import Base, engine
+from backend.db import sync_schema
 from backend.routers import auth_router, bets, groups, wallet
 
-Base.metadata.create_all(bind=engine)
+sync_schema()
 
 app = FastAPI(title="Playwise")
 

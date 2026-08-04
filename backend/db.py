@@ -1,6 +1,6 @@
 import os
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./local.db")
@@ -25,3 +25,24 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def sync_schema():
+    """Create any new tables, then add any new columns to tables that
+    already existed. Base.metadata.create_all() only does the former — it
+    silently no-ops on existing tables, so a column added to a model never
+    reaches a live database without this. Only handles additive columns
+    (our actual usage); renames/drops/type changes still need a real
+    migration tool if this app ever needs them."""
+    Base.metadata.create_all(bind=engine)
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if not inspector.has_table(table.name):
+                continue
+            existing_cols = {c["name"] for c in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in existing_cols:
+                    continue
+                col_type = column.type.compile(dialect=engine.dialect)
+                conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type}'))
