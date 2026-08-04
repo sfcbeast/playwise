@@ -98,7 +98,7 @@ def get_group(group_id: int, db: Session = Depends(get_db), user: User = Depends
             BetSummary(
                 id=bet.id, question=bet.question, options=bet.options, status=bet.status,
                 winning_option=bet.winning_option, creator_id=bet.creator_id,
-                option_totals=_option_totals(db, bet), created_at=bet.created_at,
+                option_totals=_option_totals(db, bet), closes_at=bet.closes_at, created_at=bet.created_at,
             )
         )
 

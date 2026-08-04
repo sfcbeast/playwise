@@ -54,6 +54,7 @@ class BetSummary(BaseModel):
     winning_option: Optional[int]
     creator_id: int
     option_totals: List[int]
+    closes_at: Optional[datetime.datetime]
     created_at: datetime.datetime
 
 
@@ -86,6 +87,7 @@ class TopUpRequestOut(BaseModel):
 class BetCreateRequest(BaseModel):
     question: str = Field(min_length=1, max_length=280)
     options: List[str] = Field(min_length=2, max_length=8)
+    closes_at: Optional[datetime.datetime] = None
 
 
 class StakeCreateRequest(BaseModel):
@@ -120,6 +122,7 @@ class BetDetail(BaseModel):
     winning_option: Optional[int]
     creator_id: int
     option_totals: List[int]
+    closes_at: Optional[datetime.datetime]
     my_stakes: List[StakeOut]
     stakes: List[StakeOut]
     payouts: List[PayoutOut]

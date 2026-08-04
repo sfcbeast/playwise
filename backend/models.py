@@ -80,6 +80,7 @@ class Bet(Base):
     options = Column(JSON, nullable=False)  # list[str]
     status = Column(String, nullable=False, default="open")  # open/resolved
     winning_option = Column(Integer, nullable=True)
+    closes_at = Column(DateTime, nullable=True)  # optional staking deadline; resolution isn't gated by it
     created_at = Column(DateTime, default=utcnow)
     resolved_at = Column(DateTime, nullable=True)
     resolved_by = Column(Integer, ForeignKey("users.id"), nullable=True)

@@ -368,6 +368,8 @@ button.chip.active { background: color-mix(in srgb, var(--accent) 16%, transpare
 .badge.leader { background: var(--warning-bg); color: var(--warning); border-color: transparent; }
 .badge.winner { background: var(--positive-bg); color: var(--positive); border-color: transparent; }
 .badge.pending { background: var(--warning-bg); color: var(--warning); border-color: transparent; }
+.badge.countdown { background: var(--warning-bg); color: var(--warning); border-color: transparent; font-variant-numeric: tabular-nums; }
+.badge.countdown.closed { background: var(--bg-soft); color: var(--text-tertiary); }
 
 /* ---------------------------------------------------------------------
    Market / option bars

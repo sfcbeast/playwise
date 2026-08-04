@@ -58,7 +58,15 @@ def create_bet(
     get_group_or_404(db, group_id)
     get_membership_or_403(db, group_id, user.id)
 
-    bet = Bet(group_id=group_id, creator_id=user.id, question=body.question, options=body.options)
+    closes_at = body.closes_at
+    if closes_at is not None:
+        closes_at = closes_at.replace(tzinfo=None)  # client always sends UTC; store naive UTC like everything else
+        if closes_at <= datetime.datetime.utcnow():
+            raise HTTPException(status_code=400, detail="Closing time must be in the future")
+
+    bet = Bet(
+        group_id=group_id, creator_id=user.id, question=body.question, options=body.options, closes_at=closes_at
+    )
     db.add(bet)
     db.flush()
     log_event(
@@ -71,7 +79,7 @@ def create_bet(
     return BetSummary(
         id=bet.id, question=bet.question, options=bet.options, status=bet.status,
         winning_option=bet.winning_option, creator_id=bet.creator_id,
-        option_totals=[0] * len(bet.options), created_at=bet.created_at,
+        option_totals=[0] * len(bet.options), closes_at=bet.closes_at, created_at=bet.created_at,
     )
 
 
@@ -93,7 +101,8 @@ def get_bet(bet_id: int, db: Session = Depends(get_db), user: User = Depends(get
     return BetDetail(
         id=bet.id, group_id=bet.group_id, question=bet.question, options=bet.options, status=bet.status,
         winning_option=bet.winning_option, creator_id=bet.creator_id,
-        option_totals=_option_totals(db, bet), my_stakes=my_stakes_out, stakes=stakes_out,
+        option_totals=_option_totals(db, bet), closes_at=bet.closes_at,
+        my_stakes=my_stakes_out, stakes=stakes_out,
         payouts=_payouts(db, bet_id) if bet.status == "resolved" else [],
     )
 
@@ -107,6 +116,8 @@ def place_stake(
 
     if bet.status != "open":
         raise HTTPException(status_code=400, detail="This bet is no longer open")
+    if bet.closes_at is not None and datetime.datetime.utcnow() >= bet.closes_at:
+        raise HTTPException(status_code=400, detail="Staking has closed for this question")
     if body.option_index >= len(bet.options):
         raise HTTPException(status_code=400, detail="Invalid option")
     if membership.balance < body.amount:

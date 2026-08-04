@@ -145,6 +145,58 @@ async function softRefresh(renderFn) {
   restoreInputs(saved);
 }
 
+// ---- closing-time countdowns --------------------------------------------
+// The API stores/serializes naive UTC timestamps (no "Z"), so a bare
+// `new Date(iso)` would be misread as local time. Always treat server
+// timestamps without an explicit offset as UTC.
+function parseServerDate(iso) {
+  if (!iso) return null;
+  return new Date(/[Zz]|[+-]\d\d:\d\d$/.test(iso) ? iso : iso + "Z");
+}
+
+function formatCountdown(closesAtIso) {
+  const closesAt = parseServerDate(closesAtIso);
+  if (!closesAt) return null;
+  const diffMs = closesAt.getTime() - Date.now();
+  if (diffMs <= 0) return { text: "Closed", closed: true };
+  const mins = Math.floor(diffMs / 60000);
+  const days = Math.floor(mins / 1440);
+  const hours = Math.floor((mins % 1440) / 60);
+  const remMins = mins % 60;
+  let text;
+  if (days > 0) text = `${days}d ${hours}h left`;
+  else if (hours > 0) text = `${hours}h ${remMins}m left`;
+  else if (mins > 0) text = `${mins}m left`;
+  else text = "Closing soon";
+  return { text, closed: false };
+}
+
+// Refreshes any on-screen countdown text, and locks the stake form the
+// moment a deadline passes even if no server poll has landed yet (the
+// server enforces the real cutoff regardless; this just keeps the UI honest
+// in between polls).
+function tickCountdowns() {
+  document.querySelectorAll(".countdown[data-closes-at]").forEach((el) => {
+    const r = formatCountdown(el.dataset.closesAt);
+    if (!r) return;
+    el.textContent = r.text;
+    el.classList.toggle("closed", r.closed);
+    if (r.closed) {
+      const form = document.getElementById("stake-form");
+      if (form && !form.dataset.lockedClosed) {
+        form.dataset.lockedClosed = "1";
+        form.querySelectorAll("input, select, button").forEach((f) => (f.disabled = true));
+        const hint = document.getElementById("stake-hint");
+        if (hint) {
+          hint.classList.remove("positive");
+          hint.textContent = "Staking has closed for this question.";
+        }
+      }
+    }
+  });
+}
+setInterval(tickCountdowns, 15000);
+
 // ---- win / loss reactions -----------------------------------------------
 
 function fireConfetti() {
@@ -542,6 +594,7 @@ async function viewGroupDetail(groupId) {
     const total = b.option_totals.reduce((a, c) => a + c, 0);
     const leaderPct = total ? Math.round((Math.max(...b.option_totals) / total) * 100) : 0;
     const leaderIdx = b.option_totals.indexOf(Math.max(...b.option_totals));
+    const countdown = b.status === "open" && b.closes_at ? formatCountdown(b.closes_at) : null;
     return `
       <a class="list-item clickable" href="#/bets/${b.id}">
         <div class="identity" style="flex:1;min-width:0;">
@@ -553,7 +606,10 @@ async function viewGroupDetail(groupId) {
             </div>
           </div>
         </div>
-        <span class="badge ${b.status}">${b.status === "open" ? icon("clock", 12) : icon("trophy", 12)} ${b.status}</span>
+        <span class="row" style="gap:6px;">
+          ${countdown ? `<span class="badge countdown${countdown.closed ? " closed" : ""}" data-closes-at="${b.closes_at}">${icon("clock", 12)} ${countdown.text}</span>` : ""}
+          <span class="badge ${b.status}">${b.status === "open" ? icon("clock", 12) : icon("trophy", 12)} ${b.status}</span>
+        </span>
       </a>
     `;
   }
@@ -605,6 +661,19 @@ async function viewGroupDetail(groupId) {
           <div class="option-input-row"><input name="option" placeholder="Option 2" required /></div>
         </div>
         <button type="button" class="secondary small" id="add-option-btn" style="align-self:flex-start;">${icon("plus", 14)} Add option</button>
+
+        <label class="field-label">${icon("clock", 12)} Closes at (optional)</label>
+        <input type="datetime-local" name="closes_at" id="bet-closes-at" />
+        <div class="row">
+          <button type="button" class="chip" data-closes-in="1">+1h</button>
+          <button type="button" class="chip" data-closes-in="6">+6h</button>
+          <button type="button" class="chip" data-closes-in="24">+1d</button>
+          <button type="button" class="chip" data-closes-in="72">+3d</button>
+          <button type="button" class="chip" data-closes-in="168">+1w</button>
+          <button type="button" class="chip" data-closes-in="clear">No deadline</button>
+        </div>
+        <p class="hint" style="margin-top:-4px;">If set, no one can stake after this time — you can still resolve whenever the outcome's known.</p>
+
         <div class="error" id="bet-error"></div>
         <button type="submit">Create question</button>
       </form>
@@ -658,15 +727,33 @@ async function viewGroupDetail(groupId) {
     row.querySelector(".remove-option-btn").onclick = () => row.remove();
   };
 
+  const closesAtInput = document.getElementById("bet-closes-at");
+  function toLocalInputValue(date) {
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+  closesAtInput.min = toLocalInputValue(new Date(Date.now() + 60000));
+  document.querySelectorAll("[data-closes-in]").forEach((chip) => {
+    chip.onclick = () => {
+      if (chip.dataset.closesIn === "clear") {
+        closesAtInput.value = "";
+      } else {
+        closesAtInput.value = toLocalInputValue(new Date(Date.now() + Number(chip.dataset.closesIn) * 3600000));
+      }
+    };
+  });
+
   document.getElementById("bet-form").onsubmit = async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
     const question = f.get("question");
     const options = f.getAll("option").map((o) => o.trim()).filter(Boolean);
+    const closesAtLocal = f.get("closes_at");
+    const closes_at = closesAtLocal ? new Date(closesAtLocal).toISOString() : null;
     try {
       const bet = await api(`/api/groups/${groupId}/bets`, {
         method: "POST",
-        body: { question, options },
+        body: { question, options, closes_at },
       });
       toast("Question posted", "success");
       location.hash = `#/bets/${bet.id}`;
@@ -712,6 +799,8 @@ async function viewBetDetail(betId) {
   const user = getUser();
   const isLeader = group.leader_id === user.id;
   const total = bet.option_totals.reduce((a, c) => a + c, 0);
+  const countdown = bet.status === "open" && bet.closes_at ? formatCountdown(bet.closes_at) : null;
+  const stakingClosed = bet.status !== "open" || (countdown && countdown.closed);
 
   maybeReactToResolution(bet, user);
 
@@ -780,7 +869,10 @@ async function viewBetDetail(betId) {
     <div class="card">
       <div class="row between" style="align-items:flex-start;">
         <h1>${escapeHtml(bet.question)}</h1>
-        <span class="badge ${bet.status}">${bet.status === "open" ? icon("clock", 12) : icon("trophy", 12)} ${bet.status}</span>
+        <span class="row" style="gap:6px;">
+          ${countdown ? `<span class="badge countdown${countdown.closed ? " closed" : ""}" data-closes-at="${bet.closes_at}">${icon("clock", 12)} ${countdown.text}</span>` : ""}
+          <span class="badge ${bet.status}">${bet.status === "open" ? icon("clock", 12) : icon("trophy", 12)} ${bet.status}</span>
+        </span>
       </div>
       <p class="muted" style="margin:2px 0 14px;">${fmtCoins(total)} coins staked total</p>
       ${winnerBanner}
@@ -789,7 +881,7 @@ async function viewBetDetail(betId) {
 
     ${payoutsHtml}
 
-    ${bet.status === "open" ? `
+    ${bet.status === "open" && !stakingClosed ? `
       <div class="card">
         <h3 class="card-title">${icon("bolt", 16)} Place a stake</h3>
         <p class="muted" style="margin-top:-4px;">Your balance: <strong>${fmtCoins(group.my_balance)}</strong> coins</p>
@@ -805,6 +897,12 @@ async function viewBetDetail(betId) {
           <button type="submit" ${group.my_balance < 1 ? "disabled" : ""}>Stake</button>
         </form>
         ${group.my_balance < 1 ? `<p class="hint">You have no balance in this group — request a top-up first.</p>` : ""}
+      </div>
+    ` : ""}
+    ${bet.status === "open" && stakingClosed ? `
+      <div class="card">
+        <h3 class="card-title">${icon("clock", 16)} Staking closed</h3>
+        <p class="muted" style="margin:0;">The deadline for staking on this question has passed. ${isLeader ? "Resolve it below once the outcome's known." : "Waiting on the leader to resolve it."}</p>
       </div>
     ` : ""}
 
