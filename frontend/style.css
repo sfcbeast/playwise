@@ -199,7 +199,7 @@ label.field-label {
 /* ---------------------------------------------------------------------
    Buttons
 --------------------------------------------------------------------- */
-button {
+button, a.secondary, a.ghost, a.danger, a.chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -212,8 +212,9 @@ button {
   cursor: pointer;
   transition: filter 0.12s ease, transform 0.05s ease, background 0.15s ease, opacity 0.15s ease;
   white-space: nowrap;
+  text-decoration: none;
 }
-button:active { transform: translateY(1px); }
+button:active, a.secondary:active, a.ghost:active, a.danger:active, a.chip:active { transform: translateY(1px); }
 button:disabled { opacity: 0.55; cursor: default; transform: none; }
 
 button.primary, button:not([class*="secondary"]):not([class*="danger"]):not([class*="ghost"]):not([class*="chip"]) {
@@ -224,30 +225,30 @@ button.primary, button:not([class*="secondary"]):not([class*="danger"]):not([cla
 }
 button.primary:hover, button:not([class*="secondary"]):not([class*="danger"]):not([class*="ghost"]):not([class*="chip"]):hover { filter: brightness(1.07); }
 
-button.secondary {
+button.secondary, a.secondary {
   background: var(--bg-soft);
   color: var(--text);
   border-color: var(--border-strong);
 }
-button.secondary:hover { background: var(--card-hover); }
+button.secondary:hover, a.secondary:hover { background: var(--card-hover); }
 
-button.ghost {
+button.ghost, a.ghost {
   background: transparent;
   color: var(--text-secondary);
   border-color: transparent;
   padding: 7px 9px;
 }
-button.ghost:hover { background: var(--card-hover); color: var(--text); }
+button.ghost:hover, a.ghost:hover { background: var(--card-hover); color: var(--text); }
 
-button.danger {
+button.danger, a.danger {
   background: var(--negative);
   border-color: color-mix(in srgb, var(--negative) 60%, black 10%);
   color: white;
 }
-button.danger:hover { filter: brightness(1.08); }
+button.danger:hover, a.danger:hover { filter: brightness(1.08); }
 
-button.small { padding: 7px 11px; font-size: 0.82rem; }
-button.icon-btn { padding: 8px; border-radius: 999px; }
+button.small, a.small { padding: 7px 11px; font-size: 0.82rem; }
+button.icon-btn, a.icon-btn { padding: 8px; border-radius: 999px; }
 
 button.chip {
   background: var(--bg-soft);
@@ -628,4 +629,63 @@ button.chip.vote-no.active { background: color-mix(in srgb, var(--negative) 20%,
   .app { padding: 18px 12px 90px; }
   .balance { font-size: 2rem; }
   .card { padding: 16px; }
+}
+
+/* ---------------------------------------------------------------------
+   Chat
+--------------------------------------------------------------------- */
+.chat-card { display: flex; flex-direction: column; }
+
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 55vh;
+  min-height: 220px;
+  overflow-y: auto;
+  padding: 4px 4px 4px 0;
+  margin-top: 12px;
+}
+
+.chat-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 82%;
+}
+
+.chat-message.mine {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.chat-bubble {
+  background: var(--bg-soft);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: 8px 12px;
+  min-width: 0;
+}
+
+.chat-message.mine .chat-bubble {
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg-soft));
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong));
+}
+
+.chat-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 2px;
+}
+
+.chat-author { font-size: 0.78rem; font-weight: 700; color: var(--text-secondary); }
+.chat-time { font-size: 0.72rem; color: var(--text-tertiary); }
+.chat-delete { padding: 3px; margin-left: 2px; }
+
+.chat-text {
+  font-size: 0.9rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
 }

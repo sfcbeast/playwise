@@ -161,3 +161,13 @@ class VoteBallot(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     choice = Column(String, nullable=False)  # yes | no
     created_at = Column(DateTime, default=utcnow)
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True)
+    group_id = Column(Integer, ForeignKey("groups.id"), nullable=True)  # null = the site-wide global chat
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    message = Column(String, nullable=False)
+    created_at = Column(DateTime, default=utcnow)

@@ -21,8 +21,11 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def rate_limit(request: Request, key_prefix: str, max_attempts: int, window_seconds: int):
-    key = f"{key_prefix}:{_client_ip(request)}"
+def check_rate_limit(key: str, max_attempts: int, window_seconds: int):
+    """Lower-level check keyed by an arbitrary string -- use this directly
+    (e.g. keyed by user id) for authenticated actions like posting chat
+    messages, where the user identity is a more meaningful limiter key than
+    their IP (which login/register don't have, since they're pre-auth)."""
     now = time.time()
     cutoff = now - window_seconds
     with _lock:
@@ -32,3 +35,7 @@ def rate_limit(request: Request, key_prefix: str, max_attempts: int, window_seco
         if len(attempts) >= max_attempts:
             raise HTTPException(status_code=429, detail="Too many attempts. Please wait a bit and try again.")
         attempts.append(now)
+
+
+def rate_limit(request: Request, key_prefix: str, max_attempts: int, window_seconds: int):
+    check_rate_limit(f"{key_prefix}:{_client_ip(request)}", max_attempts, window_seconds)

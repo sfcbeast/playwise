@@ -195,4 +195,16 @@ class VoteOut(BaseModel):
     created_at: datetime.datetime
 
 
+class ChatMessageCreateRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=1000)
+
+
+class ChatMessageOut(BaseModel):
+    id: int
+    user_id: int
+    display_name: str
+    message: str
+    created_at: datetime.datetime
+
+
 GroupDetail.model_rebuild()

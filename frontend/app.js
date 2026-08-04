@@ -19,6 +19,7 @@ const ICON_PATHS = {
   trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
   flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>',
   eyeOff: '<path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>',
+  chat: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>',
 };
 
 function icon(name, size = 18) {
@@ -134,6 +135,17 @@ let pollState = { timer: null, groupId: null, lastEventId: 0, refresh: null };
 function stopPolling() {
   if (pollState.timer) clearInterval(pollState.timer);
   pollState = { timer: null, groupId: null, lastEventId: 0, refresh: null };
+}
+
+// Chat has its own dedicated poll loop (faster cadence, different endpoint
+// shape) rather than reusing the group-events one above, so a chat message
+// never gets mixed into the notification toast feed.
+const CHAT_POLL_INTERVAL_MS = 3000;
+let chatPollTimer = null;
+
+function stopChatPolling() {
+  if (chatPollTimer) clearInterval(chatPollTimer);
+  chatPollTimer = null;
 }
 
 function startPolling(groupId, latestEventId, refresh) {
@@ -383,6 +395,7 @@ function renderUserBox() {
   const user = getUser();
   if (!user) { box.innerHTML = ""; return; }
   box.innerHTML = `
+    <a class="ghost icon-btn" href="#/chat" title="Global chat">${icon("chat", 17)}</a>
     <span class="name">${escapeHtml(user.display_name)}</span>
     ${avatarHtml(user.display_name, "sm")}
     <button class="ghost icon-btn" id="logout-btn" title="Log out">${icon("logout", 17)}</button>
@@ -406,6 +419,7 @@ function setApp(html) {
 
 async function render() {
   stopPolling();
+  stopChatPolling();
   renderUserBox();
   const hash = location.hash || "#/groups";
   const user = getUser();
@@ -420,11 +434,14 @@ async function render() {
   }
 
   const groupMatch = hash.match(/^#\/groups\/(\d+)$/);
+  const groupChatMatch = hash.match(/^#\/groups\/(\d+)\/chat$/);
   const betMatch = hash.match(/^#\/bets\/(\d+)$/);
 
   try {
     if (hash === "#/login") return viewLogin();
     if (hash === "#/register") return viewRegister();
+    if (hash === "#/chat") return await viewGlobalChat();
+    if (groupChatMatch) return await viewGroupChat(Number(groupChatMatch[1]));
     if (groupMatch) return await viewGroupDetail(Number(groupMatch[1]));
     if (betMatch) return await viewBetDetail(Number(betMatch[1]));
     return await viewGroups();
@@ -698,9 +715,12 @@ async function viewGroupDetail(groupId) {
         </div>
         ${icon("wallet", 26)}
       </div>
-      <div class="invite-pill section-gap">
-        ${icon("key", 14)} <code>${escapeHtml(group.invite_code)}</code>
-        <button class="ghost small" id="copy-invite-btn">${icon("copy", 13)} Copy</button>
+      <div class="row section-gap" style="gap:8px;">
+        <div class="invite-pill">
+          ${icon("key", 14)} <code>${escapeHtml(group.invite_code)}</code>
+          <button class="ghost small" id="copy-invite-btn">${icon("copy", 13)} Copy</button>
+        </div>
+        <a href="#/groups/${groupId}/chat" class="secondary small" style="display:inline-flex;align-items:center;gap:6px;">${icon("chat", 14)} Group chat</a>
       </div>
     </div>
 
@@ -1345,4 +1365,137 @@ async function viewBetDetail(betId) {
   });
 
   startPolling(group.id, group.latest_event_id, () => softRefresh(() => viewBetDetail(betId)));
+}
+
+// ---- views: chat ---------------------------------------------------------
+
+function fmtClockTime(iso) {
+  const d = parseServerDate(iso);
+  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+async function renderChatView({ apiBase, title, backHref, backLabel, isModerator }) {
+  setTitle(title);
+  setApp(skeletonView(1));
+  const messages = await api(`${apiBase}?after_id=0`);
+  let lastId = messages.length ? messages[messages.length - 1].id : 0;
+  const user = getUser();
+
+  function messageRow(m) {
+    const mine = m.user_id === user.id;
+    const canDelete = mine || isModerator;
+    return `
+      <div class="chat-message${mine ? " mine" : ""}" data-msg-id="${m.id}">
+        ${avatarHtml(m.display_name, "sm")}
+        <div class="chat-bubble">
+          <div class="chat-meta">
+            <span class="chat-author">${escapeHtml(m.display_name)}</span>
+            <span class="chat-time">${fmtClockTime(m.created_at)}</span>
+            ${canDelete ? `<button class="ghost icon-btn chat-delete" data-delete-msg="${m.id}" title="Delete">${icon("x", 11)}</button>` : ""}
+          </div>
+          <div class="chat-text">${escapeHtml(m.message)}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  setApp(`
+    <a href="${backHref}" class="row" style="gap:6px;color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;">${icon("arrowLeft", 15)} ${escapeHtml(backLabel)}</a>
+    <div class="card chat-card">
+      <h1 class="row" style="gap:8px;">${icon("chat", 20)} ${escapeHtml(title)}</h1>
+      <div id="chat-messages" class="chat-messages">
+        ${messages.length ? messages.map(messageRow).join("") : `<div class="empty-state">${icon("inbox", 24)}<p>No messages yet — say hi.</p></div>`}
+      </div>
+      <form id="chat-form" class="form-inline" style="margin-top:12px;">
+        <input name="message" placeholder="Type a message…" maxlength="1000" autocomplete="off" required />
+        <button type="submit">Send</button>
+      </form>
+      <div class="error" id="chat-error"></div>
+    </div>
+  `);
+
+  const messagesEl = document.getElementById("chat-messages");
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+
+  function isNearBottom() {
+    return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
+  }
+
+  function wireDeleteButtons() {
+    messagesEl.querySelectorAll("[data-delete-msg]").forEach((btn) => {
+      if (btn.dataset.wired) return;
+      btn.dataset.wired = "1";
+      btn.onclick = async () => {
+        if (!confirm("Delete this message?")) return;
+        try {
+          await api(`${apiBase}/${btn.dataset.deleteMsg}`, { method: "DELETE" });
+          btn.closest(".chat-message").remove();
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      };
+    });
+  }
+  wireDeleteButtons();
+
+  async function poll() {
+    let fresh;
+    try {
+      fresh = await api(`${apiBase}?after_id=${lastId}`);
+    } catch {
+      return;
+    }
+    if (!fresh.length) return;
+    const stick = isNearBottom();
+    const empty = messagesEl.querySelector(".empty-state");
+    if (empty) empty.remove();
+    fresh.forEach((m) => {
+      messagesEl.insertAdjacentHTML("beforeend", messageRow(m));
+      lastId = m.id;
+    });
+    wireDeleteButtons();
+    if (stick) messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  document.getElementById("chat-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const message = (f.get("message") || "").trim();
+    if (!message) return;
+    const input = e.target.querySelector('input[name="message"]');
+    input.value = "";
+    try {
+      await api(apiBase, { method: "POST", body: { message } });
+      document.getElementById("chat-error").textContent = "";
+      await poll();
+    } catch (err) {
+      input.value = message;
+      document.getElementById("chat-error").textContent = err.message;
+    }
+  };
+
+  chatPollTimer = setInterval(poll, CHAT_POLL_INTERVAL_MS);
+}
+
+async function viewGlobalChat() {
+  await renderChatView({
+    apiBase: "/api/chat/global",
+    title: "Global chat",
+    backHref: "#/groups",
+    backLabel: "All groups",
+    isModerator: false,
+  });
+}
+
+async function viewGroupChat(groupId) {
+  setApp(skeletonView(1));
+  const group = await api(`/api/groups/${groupId}`);
+  const user = getUser();
+  await renderChatView({
+    apiBase: `/api/groups/${groupId}/chat`,
+    title: `${group.name} chat`,
+    backHref: `#/groups/${groupId}`,
+    backLabel: group.name,
+    isModerator: group.leader_id === user.id,
+  });
 }
