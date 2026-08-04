@@ -39,6 +39,7 @@ class Group(Base):
     name = Column(String, nullable=False)
     invite_code = Column(String, unique=True, nullable=False, default=gen_invite_code, index=True)
     leader_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    parent_group_id = Column(Integer, ForeignKey("groups.id"), nullable=True)
     created_at = Column(DateTime, default=utcnow)
 
     leader = relationship("User")

@@ -25,6 +25,7 @@ class TokenResponse(BaseModel):
 
 class GroupCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
+    parent_group_id: Optional[int] = None
 
 
 class GroupJoinRequest(BaseModel):
@@ -36,6 +37,7 @@ class GroupSummary(BaseModel):
     name: str
     invite_code: str
     leader_id: int
+    is_member: bool
     my_balance: int
 
 
@@ -64,6 +66,9 @@ class GroupDetail(BaseModel):
     invite_code: str
     leader_id: int
     my_balance: int
+    parent_group_id: Optional[int]
+    parent_group_name: Optional[str]
+    subgroups: List[GroupSummary]
     members: List[MemberBalance]
     bets: List[BetSummary]
     pending_topups: List["TopUpRequestOut"]

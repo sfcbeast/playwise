@@ -589,6 +589,20 @@ async function viewGroupDetail(groupId) {
       `).join("")
     : `<div class="empty-state" style="padding:14px 10px;">${icon("inbox", 22)}<p>Nothing pending.</p></div>`;
 
+  const subgroupsHtml = group.subgroups.length
+    ? group.subgroups.map((sg) => `
+        <div class="list-item">
+          <div class="identity">
+            ${avatarHtml(sg.name)}
+            <div class="meta"><div class="primary">${escapeHtml(sg.name)}</div></div>
+          </div>
+          ${sg.is_member
+            ? `<a href="#/groups/${sg.id}" class="amount" style="text-decoration:none;">${fmtCoins(sg.my_balance)}</a>`
+            : `<button class="secondary small" data-join-subgroup="${sg.id}">Join</button>`}
+        </div>
+      `).join("")
+    : `<div class="empty-state" style="padding:14px 10px;">${icon("inbox", 22)}<p>No sub-groups yet.</p></div>`;
+
   const openBets = group.bets.filter((b) => b.status === "open");
   const resolvedBets = group.bets.filter((b) => b.status === "resolved");
 
@@ -618,6 +632,9 @@ async function viewGroupDetail(groupId) {
 
   setApp(`
     <a href="#/groups" class="row" style="gap:6px;color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;">${icon("arrowLeft", 15)} All groups</a>
+    ${group.parent_group_name ? `
+      <a href="#/groups/${group.parent_group_id}" class="row" style="gap:6px;color:var(--accent);font-size:0.85rem;margin-bottom:10px;">${icon("arrowLeft", 15)} ${escapeHtml(group.parent_group_name)}</a>
+    ` : ""}
 
     <div class="card balance-hero">
       <div class="row between">
@@ -652,6 +669,16 @@ async function viewGroupDetail(groupId) {
     <div class="card">
       <h3 class="card-title">${icon("users", 16)} Members</h3>
       ${membersHtml}
+    </div>
+
+    <div class="card">
+      <h3 class="card-title">${icon("users", 16)} Sub-groups</h3>
+      ${subgroupsHtml}
+      <form id="create-subgroup-form" class="form-inline section-gap">
+        <input name="name" placeholder="Sub-group name (e.g. Action)" required />
+        <button type="submit">Create</button>
+      </form>
+      <div class="error" id="create-subgroup-error"></div>
     </div>
 
     <div class="card">
@@ -704,6 +731,30 @@ async function viewGroupDetail(groupId) {
       toast("Couldn't copy — copy it manually", "error");
     }
   };
+
+  document.getElementById("create-subgroup-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    try {
+      const sg = await api("/api/groups", { method: "POST", body: { name: f.get("name"), parent_group_id: groupId } });
+      toast(`Created sub-group "${sg.name}"`, "success");
+      location.hash = `#/groups/${sg.id}`;
+    } catch (err) {
+      document.getElementById("create-subgroup-error").textContent = err.message;
+    }
+  };
+
+  document.querySelectorAll("[data-join-subgroup]").forEach((btn) => {
+    btn.onclick = async () => {
+      try {
+        const sg = await api(`/api/groups/${btn.dataset.joinSubgroup}/join`, { method: "POST" });
+        toast(`Joined "${sg.name}"`, "success");
+        location.hash = `#/groups/${sg.id}`;
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    };
+  });
 
   document.getElementById("topup-form").onsubmit = async (e) => {
     e.preventDefault();

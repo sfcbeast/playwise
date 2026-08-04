@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from backend.auth import get_current_user
 from backend.db import get_db
-from backend.helpers import get_group_or_404, get_membership_or_403
+from backend.helpers import get_group_or_404, get_membership_or_403, log_event
 from backend.models import Bet, Group, GroupEvent, Membership, Stake, TopUpRequest, User
 from backend.schemas import (
     BetSummary,
@@ -29,15 +29,25 @@ def _option_totals(db: Session, bet: Bet):
 
 @router.post("", response_model=GroupSummary)
 def create_group(body: GroupCreateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    group = Group(name=body.name, leader_id=user.id)
+    if body.parent_group_id is not None:
+        get_group_or_404(db, body.parent_group_id)
+        get_membership_or_403(db, body.parent_group_id, user.id)
+
+    group = Group(name=body.name, leader_id=user.id, parent_group_id=body.parent_group_id)
     db.add(group)
     db.flush()
     membership = Membership(user_id=user.id, group_id=group.id, balance=0)
     db.add(membership)
+    if body.parent_group_id is not None:
+        log_event(
+            db, body.parent_group_id, user.id, "subgroup_created",
+            f'{user.display_name} created a sub-group: "{body.name}"',
+        )
     db.commit()
     db.refresh(group)
     return GroupSummary(
-        id=group.id, name=group.name, invite_code=group.invite_code, leader_id=group.leader_id, my_balance=0
+        id=group.id, name=group.name, invite_code=group.invite_code, leader_id=group.leader_id,
+        is_member=True, my_balance=0,
     )
 
 
@@ -60,7 +70,30 @@ def join_group(body: GroupJoinRequest, db: Session = Depends(get_db), user: User
         name=group.name,
         invite_code=group.invite_code,
         leader_id=group.leader_id,
+        is_member=True,
         my_balance=existing.balance,
+    )
+
+
+@router.post("/{group_id}/join", response_model=GroupSummary)
+def join_subgroup(group_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Frictionless join for sub-groups only: no invite code needed since
+    you're already a trusted member of the parent. Top-level groups still
+    require the invite-code flow above."""
+    group = get_group_or_404(db, group_id)
+    if group.parent_group_id is None:
+        raise HTTPException(status_code=403, detail="Top-level groups require an invite code to join")
+    get_membership_or_403(db, group.parent_group_id, user.id)
+
+    existing = db.query(Membership).filter(Membership.group_id == group_id, Membership.user_id == user.id).first()
+    if existing is None:
+        existing = Membership(user_id=user.id, group_id=group_id, balance=0)
+        db.add(existing)
+        db.commit()
+
+    return GroupSummary(
+        id=group.id, name=group.name, invite_code=group.invite_code, leader_id=group.leader_id,
+        is_member=True, my_balance=existing.balance,
     )
 
 
@@ -73,7 +106,7 @@ def list_my_groups(db: Session = Depends(get_db), user: User = Depends(get_curre
         result.append(
             GroupSummary(
                 id=group.id, name=group.name, invite_code=group.invite_code, leader_id=group.leader_id,
-                my_balance=m.balance,
+                is_member=True, my_balance=m.balance,
             )
         )
     return result
@@ -121,9 +154,28 @@ def get_group(group_id: int, db: Session = Depends(get_db), user: User = Depends
         db.query(func.max(GroupEvent.id)).filter(GroupEvent.group_id == group_id).scalar() or 0
     )
 
+    subgroups = []
+    for sg in db.query(Group).filter(Group.parent_group_id == group_id).order_by(Group.created_at.asc()).all():
+        sg_membership = (
+            db.query(Membership).filter(Membership.group_id == sg.id, Membership.user_id == user.id).first()
+        )
+        subgroups.append(
+            GroupSummary(
+                id=sg.id, name=sg.name, invite_code=sg.invite_code, leader_id=sg.leader_id,
+                is_member=sg_membership is not None, my_balance=sg_membership.balance if sg_membership else 0,
+            )
+        )
+
+    parent_group_name = None
+    if group.parent_group_id is not None:
+        parent = db.get(Group, group.parent_group_id)
+        parent_group_name = parent.name if parent else None
+
     return GroupDetail(
         id=group.id, name=group.name, invite_code=group.invite_code, leader_id=group.leader_id,
-        my_balance=my_membership.balance, members=members, bets=bets, pending_topups=pending_topups,
+        my_balance=my_membership.balance, parent_group_id=group.parent_group_id,
+        parent_group_name=parent_group_name, subgroups=subgroups,
+        members=members, bets=bets, pending_topups=pending_topups,
         latest_event_id=latest_event_id,
     )
 
