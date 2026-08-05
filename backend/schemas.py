@@ -59,6 +59,7 @@ class BetSummary(BaseModel):
     option_totals: List[int]
     closes_at: Optional[datetime.datetime]
     hidden_from_names: List[str]
+    image_data: Optional[str] = None
     created_at: datetime.datetime
 
 
@@ -97,6 +98,7 @@ class BetCreateRequest(BaseModel):
     options: List[str] = Field(min_length=2, max_length=8)
     closes_at: Optional[datetime.datetime] = None
     hidden_from_user_ids: Optional[List[int]] = None
+    image_data: Optional[str] = Field(default=None, max_length=2_800_000)  # ~2MB decoded, base64 data URL
 
 
 class StakeCreateRequest(BaseModel):
@@ -111,6 +113,8 @@ class ResolveRequest(BaseModel):
 class BetEditRequest(BaseModel):
     question: str = Field(min_length=1, max_length=280)
     options: List[str] = Field(min_length=2, max_length=8)
+    image_data: Optional[str] = Field(default=None, max_length=2_800_000)
+    remove_image: bool = False
 
 
 class StakeOut(BaseModel):
@@ -139,6 +143,7 @@ class BetDetail(BaseModel):
     option_totals: List[int]
     closes_at: Optional[datetime.datetime]
     hidden_from_names: List[str]
+    image_data: Optional[str] = None
     my_stakes: List[StakeOut]
     stakes: List[StakeOut]
     payouts: List[PayoutOut]

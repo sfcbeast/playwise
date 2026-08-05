@@ -20,6 +20,16 @@ from backend.schemas import (
 
 router = APIRouter(tags=["bets"])
 
+_ALLOWED_IMAGE_PREFIXES = ("data:image/png;base64,", "data:image/jpeg;base64,", "data:image/webp;base64,", "data:image/gif;base64,")
+
+
+def _validate_image_data(image_data):
+    if image_data is None:
+        return None
+    if not image_data.startswith(_ALLOWED_IMAGE_PREFIXES):
+        raise HTTPException(status_code=400, detail="Unsupported image format")
+    return image_data
+
 
 def _option_totals(db: Session, bet: Bet):
     totals = [0] * len(bet.options)
@@ -88,8 +98,11 @@ def create_bet(
     for uid in hidden_from_ids:
         get_membership_or_403(db, group_id, uid)
 
+    image_data = _validate_image_data(body.image_data)
+
     bet = Bet(
-        group_id=group_id, creator_id=user.id, question=body.question, options=body.options, closes_at=closes_at
+        group_id=group_id, creator_id=user.id, question=body.question, options=body.options, closes_at=closes_at,
+        image_data=image_data,
     )
     db.add(bet)
     db.flush()
@@ -106,7 +119,7 @@ def create_bet(
         id=bet.id, question=bet.question, options=bet.options, status=bet.status,
         winning_option=bet.winning_option, creator_id=bet.creator_id,
         option_totals=[0] * len(bet.options), closes_at=bet.closes_at,
-        hidden_from_names=_hidden_from_names(db, bet.id), created_at=bet.created_at,
+        hidden_from_names=_hidden_from_names(db, bet.id), image_data=bet.image_data, created_at=bet.created_at,
     )
 
 
@@ -130,7 +143,7 @@ def get_bet(bet_id: int, db: Session = Depends(get_db), user: User = Depends(get
         id=bet.id, group_id=bet.group_id, question=bet.question, options=bet.options, status=bet.status,
         winning_option=bet.winning_option, creator_id=bet.creator_id,
         option_totals=_option_totals(db, bet), closes_at=bet.closes_at,
-        hidden_from_names=_hidden_from_names(db, bet_id),
+        hidden_from_names=_hidden_from_names(db, bet_id), image_data=bet.image_data,
         my_stakes=my_stakes_out, stakes=stakes_out,
         payouts=_payouts(db, bet_id) if bet.status == "resolved" else [],
     )
@@ -153,6 +166,10 @@ def edit_bet(
 
     bet.question = body.question
     bet.options = body.options
+    if body.remove_image:
+        bet.image_data = None
+    elif body.image_data is not None:
+        bet.image_data = _validate_image_data(body.image_data)
     log_event(db, bet.group_id, user.id, "bet_edited", f'{user.display_name} edited a question: "{body.question}"', ref_bet_id=bet.id)
     db.commit()
     return get_bet(bet_id, db, user)

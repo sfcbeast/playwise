@@ -20,6 +20,7 @@ const ICON_PATHS = {
   flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>',
   eyeOff: '<path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>',
   chat: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/>',
 };
 
 function icon(name, size = 18) {
@@ -386,8 +387,56 @@ function escapeHtml(str) {
 
 function fmtCoins(n) { return n.toLocaleString(); }
 
+// Question images are stored inline in the DB as a data URL, so they're
+// downscaled/recompressed client-side first -- keeps the payload well under
+// the backend's 2MB cap without needing any external file storage.
+function fileToCompressedDataUrl(file, maxDim = 1280, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith("image/")) {
+      reject(new Error("Please choose an image file"));
+      return;
+    }
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Couldn't read that file"));
+    reader.onload = () => {
+      img.onerror = () => reject(new Error("Couldn't read that image"));
+      img.onload = () => {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function setTitle(suffix) {
   document.title = suffix ? `${suffix} · Playwise` : "Playwise";
+}
+
+// Ad placeholder slots -------------------------------------------------
+//
+// No ad network is wired in -- this just reserves clearly-labeled,
+// correctly-sized containers in the layout so a real network's script
+// (e.g. Google AdSense's <ins class="adsbygoogle"> tag, dropped in via
+// index.html and pushed into these containers, or any other network's
+// SDK targeting these element ids) can be plugged in later without any
+// further layout changes. `data-ad-slot` names the placement for whatever
+// config maps slots to ad units.
+function adSlot(slotId, label) {
+  return `
+    <div class="ad-slot" id="ad-slot-${slotId}" data-ad-slot="${slotId}">
+      <span class="ad-slot-label">Advertisement</span>
+      <span class="ad-slot-hint">${escapeHtml(label)}</span>
+    </div>
+  `;
 }
 
 function renderUserBox() {
@@ -565,6 +614,7 @@ async function viewGroups() {
       <h1 class="row" style="gap:8px;">${icon("bolt", 20)} Your groups</h1>
       ${groupsHtml}
     </div>
+    ${adSlot("groups-top", "728x90 leaderboard")}
     <div class="card">
       <h3 class="card-title">${icon("plus", 16)} Create a group</h3>
       <form id="create-group-form" class="form-inline">
@@ -684,6 +734,7 @@ async function viewGroupDetail(groupId) {
     return `
       <a class="list-item clickable" href="#/bets/${b.id}">
         <div class="identity" style="flex:1;min-width:0;">
+          ${b.image_data ? `<img src="${b.image_data}" class="bet-thumb" alt="" />` : ""}
           <div class="meta" style="flex:1;min-width:0;">
             <div class="primary" style="white-space:normal;">${escapeHtml(b.question)}</div>
             <div class="secondary row" style="gap:8px;margin-top:4px;">
@@ -789,6 +840,16 @@ async function viewGroupDetail(groupId) {
         </div>
         <button type="button" class="secondary small" id="add-option-btn" style="align-self:flex-start;">${icon("plus", 14)} Add option</button>
 
+        <div class="image-upload-section stack">
+          <label class="field-label">${icon("image", 14)} Attach an image (optional)</label>
+          <input type="file" accept="image/*" id="bet-image-input" />
+          <div id="bet-image-preview-wrap" style="display:none;">
+            <img id="bet-image-preview" class="bet-image-preview" alt="" />
+            <button type="button" class="ghost small" id="remove-bet-image-btn">${icon("x", 12)} Remove image</button>
+          </div>
+          <div class="error" id="bet-image-error"></div>
+        </div>
+
         <div class="timer-section stack">
           <label class="field-label" style="color:var(--warning);">${icon("clock", 14)} Staking deadline (optional)</label>
           <input type="datetime-local" name="closes_at" id="bet-closes-at" />
@@ -834,6 +895,8 @@ async function viewGroupDetail(groupId) {
         ${resolvedBets.map(betRow).join("")}
       </div>
     ` : ""}
+
+    ${adSlot("group-detail-bottom", "300x250 medium rectangle")}
   `);
 
   document.getElementById("copy-invite-btn").onclick = async () => {
@@ -977,6 +1040,29 @@ async function viewGroupDetail(groupId) {
     };
   }
 
+  let newBetImageDataUrl = null;
+  const betImageInput = document.getElementById("bet-image-input");
+  const betImagePreviewWrap = document.getElementById("bet-image-preview-wrap");
+  const betImagePreview = document.getElementById("bet-image-preview");
+  betImageInput.onchange = async () => {
+    const file = betImageInput.files[0];
+    if (!file) return;
+    document.getElementById("bet-image-error").textContent = "";
+    try {
+      newBetImageDataUrl = await fileToCompressedDataUrl(file);
+      betImagePreview.src = newBetImageDataUrl;
+      betImagePreviewWrap.style.display = "";
+    } catch (err) {
+      document.getElementById("bet-image-error").textContent = err.message;
+      betImageInput.value = "";
+    }
+  };
+  document.getElementById("remove-bet-image-btn").onclick = () => {
+    newBetImageDataUrl = null;
+    betImageInput.value = "";
+    betImagePreviewWrap.style.display = "none";
+  };
+
   document.getElementById("bet-form").onsubmit = async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
@@ -990,7 +1076,7 @@ async function viewGroupDetail(groupId) {
     try {
       const bet = await api(`/api/groups/${groupId}/bets`, {
         method: "POST",
-        body: { question, options, closes_at, hidden_from_user_ids },
+        body: { question, options, closes_at, hidden_from_user_ids, image_data: newBetImageDataUrl },
       });
       toast("Question posted", "success");
       location.hash = `#/bets/${bet.id}`;
@@ -1140,6 +1226,7 @@ async function viewBetDetail(betId) {
             ${icon("clock", 16)} <span class="countdown" data-closes-at="${bet.closes_at}">${countdown.text}</span> to place stakes
           </div>
         ` : ""}
+        ${bet.image_data ? `<img src="${bet.image_data}" class="bet-detail-image" alt="" />` : ""}
         <p class="muted" style="margin:2px 0 14px;">${fmtCoins(total)} coins staked total</p>
         ${winnerBanner}
         ${optionsHtml}
@@ -1151,6 +1238,17 @@ async function viewBetDetail(betId) {
           ${bet.options.map((o, i) => `<div class="option-input-row"><input name="edit-option" value="${escapeHtml(o)}" placeholder="Option ${i + 1}" required /></div>`).join("")}
         </div>
         <button type="button" class="secondary small" id="add-edit-option-btn" style="align-self:flex-start;">${icon("plus", 14)} Add option</button>
+
+        <div class="image-upload-section stack">
+          <label class="field-label">${icon("image", 14)} Image (optional)</label>
+          <input type="file" accept="image/*" id="edit-bet-image-input" />
+          <div id="edit-bet-image-preview-wrap" style="display:${bet.image_data ? "" : "none"};">
+            <img id="edit-bet-image-preview" class="bet-image-preview" alt="" src="${bet.image_data || ""}" />
+            <button type="button" class="ghost small" id="remove-edit-bet-image-btn">${icon("x", 12)} Remove image</button>
+          </div>
+          <div class="error" id="edit-bet-image-error"></div>
+        </div>
+
         <div class="error" id="edit-bet-error"></div>
         <div class="row">
           <button type="button" id="save-edit-bet-btn">Save changes</button>
@@ -1317,13 +1415,47 @@ async function viewBetDetail(betId) {
       container.appendChild(row);
       row.querySelector(".remove-option-btn").onclick = () => row.remove();
     };
+
+    let editBetImageDataUrl = bet.image_data || null;
+    let editBetImageRemoved = false;
+    const editImageInput = document.getElementById("edit-bet-image-input");
+    const editImagePreviewWrap = document.getElementById("edit-bet-image-preview-wrap");
+    const editImagePreview = document.getElementById("edit-bet-image-preview");
+    editImageInput.onchange = async () => {
+      const file = editImageInput.files[0];
+      if (!file) return;
+      document.getElementById("edit-bet-image-error").textContent = "";
+      try {
+        editBetImageDataUrl = await fileToCompressedDataUrl(file);
+        editBetImageRemoved = false;
+        editImagePreview.src = editBetImageDataUrl;
+        editImagePreviewWrap.style.display = "";
+      } catch (err) {
+        document.getElementById("edit-bet-image-error").textContent = err.message;
+        editImageInput.value = "";
+      }
+    };
+    document.getElementById("remove-edit-bet-image-btn").onclick = () => {
+      editBetImageDataUrl = null;
+      editBetImageRemoved = true;
+      editImageInput.value = "";
+      editImagePreviewWrap.style.display = "none";
+    };
+
     document.getElementById("save-edit-bet-btn").onclick = async () => {
       const question = document.getElementById("edit-question").value.trim();
       const options = Array.from(document.querySelectorAll('#edit-options-container input[name="edit-option"]'))
         .map((el) => el.value.trim())
         .filter(Boolean);
       try {
-        await api(`/api/bets/${betId}`, { method: "PATCH", body: { question, options } });
+        await api(`/api/bets/${betId}`, {
+          method: "PATCH",
+          body: {
+            question, options,
+            image_data: editBetImageRemoved ? null : editBetImageDataUrl,
+            remove_image: editBetImageRemoved,
+          },
+        });
         toast("Question updated", "success");
         await viewBetDetail(betId);
       } catch (err) {

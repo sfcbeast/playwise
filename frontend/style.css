@@ -390,6 +390,43 @@ button.chip.active { background: color-mix(in srgb, var(--accent) 16%, transpare
 .incognito-checklist input[type="checkbox"] { width: auto; }
 .badge.incognito { background: color-mix(in srgb, var(--accent-2) 16%, transparent); color: var(--accent-2); border-color: transparent; }
 
+.image-upload-section {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: var(--bg-soft);
+}
+.image-upload-section input[type="file"] { font-size: 0.82rem; color: var(--text-secondary); }
+#bet-image-preview-wrap, #edit-bet-image-preview-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.bet-image-preview {
+  max-width: 140px;
+  max-height: 100px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  object-fit: cover;
+}
+.bet-thumb {
+  width: 46px;
+  height: 46px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  border: 1px solid var(--border-strong);
+  flex-shrink: 0;
+}
+.bet-detail-image {
+  width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  margin: 10px 0;
+}
+
 .countdown-strip {
   display: flex;
   align-items: center;
@@ -630,6 +667,32 @@ button.chip.vote-no.active { background: color-mix(in srgb, var(--negative) 20%,
   .balance { font-size: 2rem; }
   .card { padding: 16px; }
 }
+
+/* ---------------------------------------------------------------------
+   Ad slots (placeholders -- no network wired in, see adSlot() in app.js)
+--------------------------------------------------------------------- */
+.ad-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 90px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-soft);
+  color: var(--text-tertiary);
+  padding: 12px;
+  text-align: center;
+}
+.ad-slot-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.ad-slot-hint { font-size: 0.78rem; }
 
 /* ---------------------------------------------------------------------
    Chat

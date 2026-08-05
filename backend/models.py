@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
@@ -83,6 +84,7 @@ class Bet(Base):
     status = Column(String, nullable=False, default="open")  # open/resolved
     winning_option = Column(Integer, nullable=True)
     closes_at = Column(DateTime, nullable=True)  # optional staking deadline; resolution isn't gated by it
+    image_data = Column(Text, nullable=True)  # optional "data:image/...;base64,..." URL, stored inline
     created_at = Column(DateTime, default=utcnow)
     resolved_at = Column(DateTime, nullable=True)
     resolved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
