@@ -98,6 +98,64 @@ def test_subgroup_invite_requires_parent_membership(client, unique):
     assert res.status_code == 403
 
 
+def test_subgroup_self_join_no_longer_exists(client, unique):
+    alice = register(client, f"a_{unique}")
+    parent = create_group(client, alice, "Parent3")
+    sub = client.post(
+        "/api/groups", json={"name": "Child3", "parent_group_id": parent["id"]}, headers=alice["auth"]
+    ).json()
+
+    res = client.post(f"/api/groups/{sub['id']}/join", headers=alice["auth"])
+    assert res.status_code == 405
+
+
+def test_only_subgroup_leader_can_invite(client, unique):
+    alice = register(client, f"a_{unique}")
+    bob = register(client, f"b_{unique}")
+    dave = register(client, f"d_{unique}")
+    parent = create_group(client, alice, "Parent4")
+    join_group(client, bob, parent["invite_code"])
+    join_group(client, dave, parent["invite_code"])
+
+    # alice creates the sub-group (becomes its leader) and adds bob to it
+    sub = client.post(
+        "/api/groups", json={"name": "Child4", "parent_group_id": parent["id"]}, headers=alice["auth"]
+    ).json()
+    res = client.post(f"/api/groups/{sub['id']}/invite/{bob['id']}", headers=alice["auth"])
+    assert res.status_code == 200, res.text
+
+    # bob is now a sub-group member, but not its leader -- he can't invite dave
+    res = client.post(f"/api/groups/{sub['id']}/invite/{dave['id']}", headers=bob["auth"])
+    assert res.status_code == 403
+
+    # dave was never added
+    res = client.get(f"/api/groups/{sub['id']}", headers=alice["auth"])
+    member_ids = {m["user_id"] for m in res.json()["members"]}
+    assert dave["id"] not in member_ids
+
+
+def test_invitable_members_hidden_from_non_leaders(client, unique):
+    alice = register(client, f"a_{unique}")
+    bob = register(client, f"b_{unique}")
+    eve = register(client, f"e_{unique}")
+    parent = create_group(client, alice, "Parent5")
+    join_group(client, bob, parent["invite_code"])
+    join_group(client, eve, parent["invite_code"])
+
+    sub = client.post(
+        "/api/groups", json={"name": "Child5", "parent_group_id": parent["id"]}, headers=alice["auth"]
+    ).json()
+    client.post(f"/api/groups/{sub['id']}/invite/{bob['id']}", headers=alice["auth"])
+
+    # alice is the sub-group leader -- she can see who's invitable
+    res = client.get(f"/api/groups/{sub['id']}", headers=alice["auth"])
+    assert any(m["user_id"] == eve["id"] for m in res.json()["invitable_members"])
+
+    # bob is just a member -- no visibility into the parent's full roster
+    res = client.get(f"/api/groups/{sub['id']}", headers=bob["auth"])
+    assert res.json()["invitable_members"] == []
+
+
 def test_incognito_bet_invisible_to_blinded_member(client, unique):
     alice = register(client, f"a_{unique}")
     bob = register(client, f"b_{unique}")

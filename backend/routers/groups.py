@@ -122,28 +122,6 @@ def join_group(body: GroupJoinRequest, db: Session = Depends(get_db), user: User
     )
 
 
-@router.post("/{group_id}/join", response_model=GroupSummary)
-def join_subgroup(group_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    """Frictionless join for sub-groups only: no invite code needed since
-    you're already a trusted member of the parent. Top-level groups still
-    require the invite-code flow above."""
-    group = get_group_or_404(db, group_id)
-    if group.parent_group_id is None:
-        raise HTTPException(status_code=403, detail="Top-level groups require an invite code to join")
-    get_membership_or_403(db, group.parent_group_id, user.id)
-
-    existing = db.query(Membership).filter(Membership.group_id == group_id, Membership.user_id == user.id).first()
-    if existing is None:
-        existing = Membership(user_id=user.id, group_id=group_id, balance=0)
-        db.add(existing)
-        db.commit()
-
-    return GroupSummary(
-        id=group.id, name=group.name, invite_code=group.invite_code, leader_id=group.leader_id,
-        is_member=True, my_balance=existing.balance,
-    )
-
-
 @router.get("", response_model=list[GroupSummary])
 def list_my_groups(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     memberships = db.query(Membership).filter(Membership.user_id == user.id).all()
@@ -224,16 +202,20 @@ def get_group(group_id: int, db: Session = Depends(get_db), user: User = Depends
     if group.parent_group_id is not None:
         parent = db.get(Group, group.parent_group_id)
         parent_group_name = parent.name if parent else None
-        member_ids = {m.user_id for m in db.query(Membership).filter(Membership.group_id == group_id).all()}
-        parent_members = db.query(Membership).filter(Membership.group_id == group.parent_group_id).all()
-        for pm in parent_members:
-            if pm.user_id not in member_ids:
-                invitable_members.append(
-                    MemberBalance(
-                        user_id=pm.user_id, display_name=pm.user.display_name, username=pm.user.username,
-                        balance=pm.balance,
+        # Only the sub-group's leader can see (and therefore invite from)
+        # the parent's full member list -- regular sub-group members get no
+        # visibility into who else belongs to the parent group.
+        if group.leader_id == user.id:
+            member_ids = {m.user_id for m in db.query(Membership).filter(Membership.group_id == group_id).all()}
+            parent_members = db.query(Membership).filter(Membership.group_id == group.parent_group_id).all()
+            for pm in parent_members:
+                if pm.user_id not in member_ids:
+                    invitable_members.append(
+                        MemberBalance(
+                            user_id=pm.user_id, display_name=pm.user.display_name, username=pm.user.username,
+                            balance=pm.balance,
+                        )
                     )
-                )
 
     return GroupDetail(
         id=group.id, name=group.name, invite_code=group.invite_code, leader_id=group.leader_id,
@@ -283,13 +265,15 @@ def kick_member(
 def invite_to_subgroup(
     group_id: int, user_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
-    """Push-based counterpart to /join: any current sub-group member can
-    directly add another parent-group member, rather than relying on that
-    person discovering and self-joining."""
+    """Adding someone to a sub-group is a leader-only action -- there's no
+    self-join and no member-to-member inviting, both to keep control of
+    sub-group membership with whoever's accountable for it (the sub-group's
+    leader/creator) and to keep the parent group's full member list from
+    being something every sub-group member can browse."""
     group = get_group_or_404(db, group_id)
     if group.parent_group_id is None:
         raise HTTPException(status_code=403, detail="Only sub-groups support direct invites")
-    get_membership_or_403(db, group_id, user.id)
+    require_leader(group, user.id)
     get_membership_or_403(db, group.parent_group_id, user_id)
 
     existing = db.query(Membership).filter(Membership.group_id == group_id, Membership.user_id == user_id).first()

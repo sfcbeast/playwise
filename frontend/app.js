@@ -723,7 +723,7 @@ async function viewGroupDetail(groupId) {
           </div>
           ${sg.is_member
             ? `<a href="#/groups/${sg.id}" class="amount" style="text-decoration:none;">${fmtCoins(sg.my_balance)}</a>`
-            : `<button class="secondary small" data-join-subgroup="${sg.id}">Join</button>`}
+            : `<span class="muted" style="font-size:0.82rem;">Ask the sub-group's leader to add you</span>`}
         </div>
       `).join("")
     : `<div class="empty-state" style="padding:14px 10px;">${icon("inbox", 22)}<p>No sub-groups yet.</p></div>`;
@@ -943,18 +943,6 @@ async function viewGroupDetail(groupId) {
       document.getElementById("create-subgroup-error").textContent = err.message;
     }
   };
-
-  document.querySelectorAll("[data-join-subgroup]").forEach((btn) => {
-    btn.onclick = async () => {
-      try {
-        const sg = await api(`/api/groups/${btn.dataset.joinSubgroup}/join`, { method: "POST" });
-        toast(`Joined "${sg.name}"`, "success");
-        location.hash = `#/groups/${sg.id}`;
-      } catch (err) {
-        toast(err.message, "error");
-      }
-    };
-  });
 
   document.querySelectorAll("[data-invite-member]").forEach((btn) => {
     btn.onclick = async () => {
