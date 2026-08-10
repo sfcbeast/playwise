@@ -6,6 +6,8 @@
   <meta name="theme-color" content="#0a0b0f" />
   <title>Playwise</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%235b8cff'/%3E%3Cpolygon points='17,4 6,18 15,18 14,28 26,12 17,12' fill='white'/%3E%3C/svg%3E" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -22,5 +24,10 @@
   <footer class="app-footer">Playwise is a social game for entertainment purposes only, intended for users 18+. Playwise coins have no real-world value, cannot be purchased with real money, and can never be sold, exchanged, or redeemed for cash or anything of value.</footer>
   <div id="toast-container"></div>
   <script src="app.js"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => navigator.serviceWorker.register("sw.js"));
+    }
+  </script>
 </body>
 </html>
