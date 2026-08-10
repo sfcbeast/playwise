@@ -1,3 +1,5 @@
+import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -14,10 +16,15 @@ router = APIRouter(tags=["auth"])
 @router.post("/api/register", response_model=TokenResponse)
 def register(body: RegisterRequest, request: Request, db: Session = Depends(get_db)):
     rate_limit(request, "register", max_attempts=8, window_seconds=3600)
+    if not body.accepted_terms:
+        raise HTTPException(
+            status_code=400, detail="You must acknowledge that Playwise coins are play money before creating an account"
+        )
     user = User(
         username=body.username,
         password_hash=hash_password(body.password),
         display_name=body.display_name,
+        terms_accepted_at=datetime.datetime.utcnow(),
     )
     db.add(user)
     try:

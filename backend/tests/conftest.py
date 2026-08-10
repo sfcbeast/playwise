@@ -42,7 +42,10 @@ def register(client, username, display_name=None):
     _attempts.clear()
     res = client.post(
         "/api/register",
-        json={"username": username, "password": "password123", "display_name": display_name or username},
+        json={
+            "username": username, "password": "password123", "display_name": display_name or username,
+            "accepted_terms": True,
+        },
     )
     assert res.status_code == 200, res.text
     data = res.json()

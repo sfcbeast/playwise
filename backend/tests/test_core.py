@@ -24,6 +24,25 @@ def test_wrong_password_rejected(client, unique):
     assert res.status_code == 401
 
 
+def test_register_requires_accepted_terms(client, unique):
+    _attempts.clear()
+    res = client.post(
+        "/api/register",
+        json={"username": f"noterms_{unique}", "password": "password123", "display_name": "No Terms"},
+    )
+    assert res.status_code == 400
+
+    res = client.post(
+        "/api/register",
+        json={
+            "username": f"noterms_{unique}", "password": "password123", "display_name": "No Terms",
+            "accepted_terms": False,
+        },
+    )
+    assert res.status_code == 400
+    _attempts.clear()
+
+
 def test_group_create_and_join(client, unique):
     alice = register(client, f"a_{unique}")
     bob = register(client, f"b_{unique}")

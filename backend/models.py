@@ -31,6 +31,11 @@ class User(Base):
     username = Column(String, unique=True, nullable=False, index=True)
     password_hash = Column(String, nullable=False)
     display_name = Column(String, nullable=False)
+    # Recorded, not just shown -- an affirmative, timestamped acknowledgment
+    # that coins are play money only is what app-store review (and any
+    # future "did users actually know this" question) needs, not just
+    # footer text nobody reads.
+    terms_accepted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow)
 
 

@@ -555,6 +555,10 @@ function viewRegister() {
           <input name="display_name" placeholder="Display name" required />
           <input name="username" placeholder="Username" autocomplete="username" required minlength="3" />
           <input name="password" type="password" placeholder="Password (6+ characters)" autocomplete="new-password" required minlength="6" />
+          <label class="terms-check">
+            <input type="checkbox" name="accepted_terms" required />
+            <span>I'm 18 or older and understand Playwise coins are play money only — they have no cash value and can never be bought, sold, or redeemed for real currency.</span>
+          </label>
           <div class="error" id="register-error"></div>
           <button type="submit">Create account</button>
         </form>
@@ -574,6 +578,7 @@ function viewRegister() {
           username: f.get("username"),
           password: f.get("password"),
           display_name: f.get("display_name"),
+          accepted_terms: f.get("accepted_terms") === "on",
         },
       });
       setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name });
