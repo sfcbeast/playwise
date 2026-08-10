@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.sfcbeast.playwise",
+      "sha256_cert_fingerprints": [
+        "FA:1D:AA:D2:DB:17:6E:F3:4C:7E:44:57:7A:8B:CA:94:E9:5A:9C:A1:AF:FA:9D:72:D9:3F:99:7D:64:56:87:E0"
+      ]
+    }
+  }
+]
