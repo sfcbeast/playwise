@@ -34,21 +34,34 @@ function icon(name, size = 18) {
 const AVATAR_PALETTE = ["#5b8cff", "#7c6cff", "#34d399", "#fbbf24", "#f87171", "#22d3ee", "#f472b6", "#a78bfa"];
 const OPTION_PALETTE = ["#5b8cff", "#f87171", "#34d399", "#fbbf24", "#a78bfa", "#22d3ee", "#f472b6", "#fb923c"];
 
+// A fun little critter/face set for avatars -- picked once per person (hashed
+// from their name, so it's stable across visits/devices, not re-rolled on
+// every render) rather than fetched from a third-party avatar service.
+// Deliberately only single-codepoint, emoji-presentation-default glyphs
+// here (no variation selectors, no ZWJ sequences) -- those render
+// inconsistently across platforms/fonts and one (the old chipmunk pick)
+// showed up as a blank circle in testing.
+const AVATAR_EMOJI = [
+  "🦊", "🐼", "🐨", "🦁", "🐸", "🐙", "🦄", "🐢", "🐬", "🐧", "🐝", "🐰",
+  "🐳", "🐱", "🐶", "🦒", "🦓", "🐹", "🐯", "🐵", "🐴", "🐮", "🐷", "🦆",
+];
+
 function hashSeed(str) {
   let h = 0;
   for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
   return h;
 }
 
-function initials(name) {
-  const parts = (name || "?").trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
-}
-
 function avatarHtml(name, size = "") {
-  const color = AVATAR_PALETTE[hashSeed(name || "?") % AVATAR_PALETTE.length];
-  return `<span class="avatar ${size}" style="background:${color}">${escapeHtml(initials(name))}</span>`;
+  // hashSeed forces unsigned via `>>> 0`, so derived shifts must use the
+  // unsigned operator too (`>>>`, not `>>`) -- for a seed above 2^31, a
+  // signed shift flips it negative and produces a negative array index
+  // (silently `undefined`, rendering a blank avatar).
+  const seed = hashSeed(name || "?");
+  const color = AVATAR_PALETTE[seed % AVATAR_PALETTE.length];
+  const color2 = AVATAR_PALETTE[(seed >>> 3) % AVATAR_PALETTE.length];
+  const emoji = AVATAR_EMOJI[(seed >>> 5) % AVATAR_EMOJI.length];
+  return `<span class="avatar ${size}" title="${escapeHtml(name || "?")}" style="background:linear-gradient(135deg, ${color}, ${color2})">${emoji}</span>`;
 }
 
 function optionColor(i) { return OPTION_PALETTE[i % OPTION_PALETTE.length]; }

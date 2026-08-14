@@ -359,7 +359,8 @@ button.chip.active { background: color-mix(in srgb, var(--accent) 16%, transpare
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.78rem;
+  font-size: 1.05rem;
+  line-height: 1;
   font-weight: 700;
   color: white;
   flex-shrink: 0;
@@ -367,7 +368,7 @@ button.chip.active { background: color-mix(in srgb, var(--accent) 16%, transpare
   transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
   box-shadow: 0 2px 8px -3px rgba(0, 0, 0, 0.4);
 }
-.avatar.sm { width: 26px; height: 26px; font-size: 0.68rem; }
+.avatar.sm { width: 26px; height: 26px; font-size: 0.82rem; }
 .identity:hover .avatar, .list-item:hover .avatar { transform: scale(1.1) rotate(-4deg); }
 
 /* ---------------------------------------------------------------------
