@@ -61,7 +61,8 @@ function avatarHtml(name, size = "") {
   const color = AVATAR_PALETTE[seed % AVATAR_PALETTE.length];
   const color2 = AVATAR_PALETTE[(seed >>> 3) % AVATAR_PALETTE.length];
   const emoji = AVATAR_EMOJI[(seed >>> 5) % AVATAR_EMOJI.length];
-  return `<span class="avatar ${size}" title="${escapeHtml(name || "?")}" style="background:linear-gradient(135deg, ${color}, ${color2})">${emoji}</span>`;
+  const tilt = (((seed >>> 8) % 7) - 3) * 1.4; // fixed per-person, ~-4.2deg..+4.2deg
+  return `<span class="avatar ${size}" title="${escapeHtml(name || "?")}" style="background:linear-gradient(135deg, ${color}, ${color2});--tilt:${tilt}deg">${emoji}</span>`;
 }
 
 function optionColor(i) { return OPTION_PALETTE[i % OPTION_PALETTE.length]; }
@@ -95,7 +96,7 @@ function wireVoteBallots(onDone) {
     btn.onclick = async () => {
       try {
         await api(`/api/votes/${btn.dataset.voteBallot}/ballot`, { method: "POST", body: { choice: btn.dataset.choice } });
-        toast("Vote recorded", "success");
+        toast("Vote's in", "success");
         await onDone();
       } catch (err) {
         toast(err.message, "error");
@@ -399,6 +400,43 @@ function escapeHtml(str) {
 }
 
 function fmtCoins(n) { return n.toLocaleString(); }
+
+// ---- personality: greetings & varied copy ---------------------------
+// Small touches so the app reads like someone wrote it, not like it
+// generated its own strings -- a time-aware greeting and a few pools of
+// friendly phrasing picked at random each time, instead of one static
+// label repeated forever.
+
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+function timeGreeting() {
+  const h = new Date().getHours();
+  if (h < 5) return "Up late";
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  if (h < 22) return "Good evening";
+  return "Burning the midnight oil";
+}
+
+const GROUPS_SUBTITLES = [
+  "Ready to call some outcomes?",
+  "Who's feeling lucky today?",
+  "Let's see who actually knows what they're talking about.",
+  "Put your coins where your mouth is.",
+  "Fresh predictions, fresh coins.",
+];
+
+const NO_GROUPS_MESSAGES = [
+  "No groups yet — create one below, or ask a friend for an invite code.",
+  "Empty in here. Start a group and drag your friends into it.",
+  "Nothing yet — every good prediction market starts with one group.",
+];
+
+const NO_BETS_MESSAGES = [
+  "Nothing brewing yet — be the first to ask something.",
+  "Quiet in here. Got a hot take? Turn it into a question.",
+  "No open questions — the floor is yours.",
+];
 
 // Animates a balance number counting up/down to its new value instead of
 // just snapping -- but only when it's an actual change the user should
@@ -704,6 +742,7 @@ async function viewGroups() {
   setTitle();
   setApp(skeletonView(2));
   const groups = await api("/api/groups");
+  const user = getUser();
 
   const groupsHtml = groups.length
     ? groups.map((g) => `
@@ -718,11 +757,15 @@ async function viewGroups() {
           <span class="amount">${fmtCoins(g.my_balance)}</span>
         </a>
       `).join("")
-    : `<div class="empty-state">${icon("users", 28)}<p>You're not in any groups yet — create one or join with an invite code.</p></div>`;
+    : `<div class="empty-state">${icon("users", 28)}<p>${escapeHtml(pick(NO_GROUPS_MESSAGES))}</p></div>`;
 
   setApp(`
     <div class="card">
+      <div class="greeting-eyebrow">${timeGreeting()}, ${escapeHtml(user.display_name)} 👋</div>
       <h1 class="row" style="gap:8px;">${icon("bolt", 20)} Your groups</h1>
+      <div class="squiggle"></div>
+      <p class="muted greeting-subtitle">${pick(GROUPS_SUBTITLES)}</p>
+      <div class="section-gap"></div>
       ${groupsHtml}
     </div>
     ${adSlot("groups-top", "728x90 leaderboard")}
@@ -749,7 +792,7 @@ async function viewGroups() {
     const f = new FormData(e.target);
     try {
       const g = await api("/api/groups", { method: "POST", body: { name: f.get("name") } });
-      toast(`Created "${g.name}"`, "success");
+      toast(`"${g.name}" is up and running`, "success");
       location.hash = `#/groups/${g.id}`;
     } catch (err) {
       document.getElementById("create-group-error").textContent = err.message;
@@ -761,7 +804,7 @@ async function viewGroups() {
     const f = new FormData(e.target);
     try {
       const g = await api("/api/groups/join", { method: "POST", body: { invite_code: f.get("invite_code") } });
-      toast(`Joined "${g.name}"`, "success");
+      toast(`You're in — welcome to "${g.name}"`, "success");
       location.hash = `#/groups/${g.id}`;
     } catch (err) {
       document.getElementById("join-group-error").textContent = err.message;
@@ -997,7 +1040,7 @@ async function viewGroupDetail(groupId) {
 
     <div class="card">
       <h3 class="card-title">${icon("clock", 16)} Open bets</h3>
-      ${openBets.length ? openBets.map(betRow).join("") : `<div class="empty-state">${icon("inbox", 24)}<p>No open bets yet.</p></div>`}
+      ${openBets.length ? openBets.map(betRow).join("") : `<div class="empty-state">${icon("inbox", 24)}<p>${escapeHtml(pick(NO_BETS_MESSAGES))}</p></div>`}
     </div>
 
     ${resolvedBets.length ? `
@@ -1015,7 +1058,7 @@ async function viewGroupDetail(groupId) {
   document.getElementById("copy-invite-btn").onclick = async () => {
     try {
       await navigator.clipboard.writeText(group.invite_code);
-      toast("Invite code copied", "success");
+      toast("Copied — go round up some friends", "success");
     } catch {
       toast("Couldn't copy — copy it manually", "error");
     }
@@ -1179,7 +1222,7 @@ async function viewGroupDetail(groupId) {
         method: "POST",
         body: { question, options, closes_at, hidden_from_user_ids, image_data: newBetImageDataUrl },
       });
-      toast("Question posted", "success");
+      toast("It's live — let's see who's right", "success");
       location.hash = `#/bets/${bet.id}`;
     } catch (err) {
       document.getElementById("bet-error").textContent = err.message;
@@ -1454,7 +1497,7 @@ async function viewBetDetail(betId) {
           body: { option_index: Number(f.get("option_index")), amount: Number(f.get("amount")) },
         });
         sparkleBurst(btn);
-        toast("Stake placed", "success");
+        toast("Stake locked in — good luck", "success");
         await viewBetDetail(betId);
       } catch (err) {
         document.getElementById("stake-error").textContent = err.message;

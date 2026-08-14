@@ -132,6 +132,7 @@ a:hover { text-decoration: underline; }
 }
 
 .card {
+  position: relative;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -141,6 +142,19 @@ a:hover { text-decoration: underline; }
   animation: item-rise 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
   transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
+/* A whisper of film-grain texture so cards read as crafted paper rather
+   than flat vector rectangles -- felt more than consciously seen. */
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.card > * { position: relative; }
 /* Staggered entrance for top-level cards as a view loads -- makes a page
    full of cards feel like it's arriving rather than just appearing. */
 .app > .card:nth-child(1) { animation-delay: 0ms; }
@@ -152,6 +166,26 @@ a:hover { text-decoration: underline; }
 .app > .card:nth-child(7) { animation-delay: 270ms; }
 .app > .card:nth-child(8) { animation-delay: 315ms; }
 .app > .card:nth-child(n+9) { animation-delay: 350ms; }
+
+/* A little hand-drawn wave under headings -- a deliberately imperfect,
+   sketched accent instead of a ruler-straight rule line. */
+.squiggle {
+  width: 56px;
+  height: 8px;
+  margin: 2px 0 12px;
+  background-repeat: repeat-x;
+  background-size: 20px 8px;
+  opacity: 0.55;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='8' viewBox='0 0 20 8'%3E%3Cpath d='M0 4 Q 2.5 0.5 5 4 T 10 4 T 15 4 T 20 4' fill='none' stroke='%235b8cff' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+
+.greeting-eyebrow {
+  font-size: 0.86rem;
+  font-weight: 650;
+  color: var(--accent);
+  margin-bottom: 2px;
+}
+.greeting-subtitle { margin: -2px 0 0; }
 
 .card-title {
   display: flex;
@@ -365,11 +399,15 @@ button.chip.active { background: color-mix(in srgb, var(--accent) 16%, transpare
   color: white;
   flex-shrink: 0;
   letter-spacing: -0.02em;
+  /* Each person gets a fixed slight tilt (set inline via --tilt, hashed
+     from their name) -- like a sticker pressed on a little crooked, rather
+     than every avatar sitting in mechanically perfect alignment. */
+  transform: rotate(var(--tilt, 0deg));
   transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
   box-shadow: 0 2px 8px -3px rgba(0, 0, 0, 0.4);
 }
 .avatar.sm { width: 26px; height: 26px; font-size: 0.82rem; }
-.identity:hover .avatar, .list-item:hover .avatar { transform: scale(1.1) rotate(-4deg); }
+.identity:hover .avatar, .list-item:hover .avatar { transform: rotate(var(--tilt, 0deg)) scale(1.16); }
 
 /* ---------------------------------------------------------------------
    Lists / rows
