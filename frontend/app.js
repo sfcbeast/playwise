@@ -387,6 +387,99 @@ function escapeHtml(str) {
 
 function fmtCoins(n) { return n.toLocaleString(); }
 
+// Animates a balance number counting up/down to its new value instead of
+// just snapping -- but only when it's an actual change the user should
+// notice (a stake landing, a top-up, a payout). First time a group's
+// balance is shown this session it's just displayed outright; animating a
+// "count up from 0" on every visit would get old fast for something opened
+// this often.
+const balanceCache = new Map();
+
+function animateCountUp(el, from, to, duration = 700) {
+  const start = performance.now();
+  const diff = to - from;
+  function frame(now) {
+    const t = Math.min(1, (now - start) / duration);
+    const eased = 1 - Math.pow(1 - t, 3);
+    el.textContent = fmtCoins(Math.round(from + diff * eased));
+    if (t < 1) requestAnimationFrame(frame);
+    else el.textContent = fmtCoins(to);
+  }
+  requestAnimationFrame(frame);
+}
+
+function renderBalanceNumber(el, cacheKey, value) {
+  const prev = balanceCache.get(cacheKey);
+  balanceCache.set(cacheKey, value);
+  if (prev === undefined || prev === value) {
+    el.textContent = fmtCoins(value);
+    return;
+  }
+  animateCountUp(el, prev, value);
+}
+
+// Tactile click feedback on every button -- a small ripple from the click
+// point, same idea as Material's, done with a plain absolutely-positioned
+// span rather than a library. Delegated on document so it covers buttons
+// added by any view without each render site having to wire it up.
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn || btn.disabled) return;
+  const rect = btn.getBoundingClientRect();
+  const size = Math.max(rect.width, rect.height) * 1.4;
+  const ripple = document.createElement("span");
+  ripple.className = "ripple";
+  ripple.style.width = ripple.style.height = `${size}px`;
+  ripple.style.left = `${e.clientX - rect.left - size / 2}px`;
+  ripple.style.top = `${e.clientY - rect.top - size / 2}px`;
+  btn.appendChild(ripple);
+  ripple.addEventListener("animationend", () => ripple.remove());
+});
+
+// A smaller, quicker burst than the win confetti -- for a satisfying "your
+// stake landed" moment without going as big as an actual win celebration.
+function sparkleBurst(originEl) {
+  const rect = originEl.getBoundingClientRect();
+  const originX = rect.left + rect.width / 2;
+  const originY = rect.top + rect.height / 2;
+  const canvas = document.createElement("canvas");
+  canvas.className = "confetti-canvas";
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  document.body.appendChild(canvas);
+  const ctx = canvas.getContext("2d");
+  const particles = Array.from({ length: 26 }, () => {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 2 + Math.random() * 3.5;
+    return {
+      x: originX, y: originY,
+      vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+      r: 2 + Math.random() * 2.5,
+      color: OPTION_PALETTE[Math.floor(Math.random() * OPTION_PALETTE.length)],
+    };
+  });
+  const duration = 650;
+  const start = performance.now();
+  function frame(now) {
+    const elapsed = now - start;
+    const fade = Math.max(0, 1 - elapsed / duration);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    particles.forEach((p) => {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.12;
+      ctx.globalAlpha = fade;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    if (elapsed < duration && canvas.isConnected) requestAnimationFrame(frame);
+    else canvas.remove();
+  }
+  requestAnimationFrame(frame);
+}
+
 // Question images are stored inline in the DB as a data URL, so they're
 // downscaled/recompressed client-side first -- keeps the payload well under
 // the backend's 2MB cap without needing any external file storage.
@@ -767,7 +860,7 @@ async function viewGroupDetail(groupId) {
       <div class="row between">
         <div>
           <div class="balance-label">${escapeHtml(group.name)}</div>
-          <div class="balance">${fmtCoins(group.my_balance)}<span class="unit">coins</span></div>
+          <div class="balance"><span id="balance-number"></span><span class="unit">coins</span></div>
         </div>
         ${icon("wallet", 26)}
       </div>
@@ -903,6 +996,8 @@ async function viewGroupDetail(groupId) {
 
     ${adSlot("group-detail-bottom", "300x250 medium rectangle")}
   `);
+
+  renderBalanceNumber(document.getElementById("balance-number"), `group:${groupId}`, group.my_balance);
 
   document.getElementById("copy-invite-btn").onclick = async () => {
     try {
@@ -1345,6 +1440,7 @@ async function viewBetDetail(betId) {
           method: "POST",
           body: { option_index: Number(f.get("option_index")), amount: Number(f.get("amount")) },
         });
+        sparkleBurst(btn);
         toast("Stake placed", "success");
         await viewBetDetail(betId);
       } catch (err) {
