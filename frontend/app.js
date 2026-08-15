@@ -335,6 +335,29 @@ function fireConfetti() {
   requestAnimationFrame(frame);
 }
 
+// Native OS share sheet where available (basically all of mobile, plus
+// desktop Chrome/Edge/Safari) -- falls back to a clipboard copy anywhere
+// it isn't, so this never just silently does nothing.
+async function shareOrCopy({ title, text, url }) {
+  if (navigator.share) {
+    try {
+      await navigator.share({ title, text, url });
+      return true;
+    } catch (err) {
+      if (err && err.name === "AbortError") return false; // user cancelled the share sheet
+      // fall through to clipboard on any other failure
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(url ? `${text}\n${url}` : text);
+    toast("Copied to clipboard", "success");
+    return true;
+  } catch {
+    toast("Couldn't share — copy it manually", "error");
+    return false;
+  }
+}
+
 function showReaction({ emoji, caption, kind }) {
   const el = document.createElement("div");
   el.className = `reaction-pop ${kind}`;
@@ -648,6 +671,17 @@ async function render() {
   const hash = location.hash || "#/groups";
   const user = getUser();
 
+  // A shared join link needs to survive the trip through registration --
+  // stash the code before the logged-out gate below would otherwise bounce
+  // a new visitor straight to a generic login screen with no memory of why
+  // they clicked the link in the first place.
+  const joinLinkMatch = hash.match(/^#\/join\/([a-zA-Z0-9]+)$/);
+  if (joinLinkMatch && !user) {
+    localStorage.setItem("pp_pending_invite", joinLinkMatch[1]);
+    location.hash = "#/register";
+    return;
+  }
+
   const loggedOutRoutes = ["#/login", "#/register", "#/forgot-password"];
   if (!user && !loggedOutRoutes.includes(hash)) {
     location.hash = "#/login";
@@ -666,6 +700,7 @@ async function render() {
     if (hash === "#/login") return viewLogin();
     if (hash === "#/register") return viewRegister();
     if (hash === "#/forgot-password") return viewForgotPassword();
+    if (joinLinkMatch) return await viewJoinByCode(joinLinkMatch[1]);
     if (hash === "#/chat") return await viewGlobalChat();
     if (hash === "#/discover") return await viewDiscover();
     if (groupChatMatch) return await viewGroupChat(Number(groupChatMatch[1]));
@@ -713,7 +748,7 @@ function viewLogin() {
       });
       setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name });
       toast(`Welcome back, ${data.display_name}`, "success");
-      location.hash = "#/groups";
+      await consumePendingInviteThenNavigate();
     } catch (err) {
       document.getElementById("login-error").textContent = err.message;
     } finally {
@@ -802,6 +837,40 @@ function viewForgotPassword() {
   };
 }
 
+// After a successful login/register, joins whatever group a shared invite
+// link (#/join/CODE) queued up before bouncing the visitor through auth --
+// this is what makes "come see, I just won" a real one-click flow instead
+// of "here's a code, go type it in yourself."
+async function consumePendingInviteThenNavigate() {
+  const code = localStorage.getItem("pp_pending_invite");
+  if (!code) {
+    location.hash = "#/groups";
+    return;
+  }
+  localStorage.removeItem("pp_pending_invite");
+  try {
+    const g = await api("/api/groups/join", { method: "POST", body: { invite_code: code } });
+    toast(`You're in — welcome to "${g.name}"`, "success");
+    location.hash = `#/groups/${g.id}`;
+  } catch (err) {
+    toast(`That invite link didn't work: ${err.message}`, "error");
+    location.hash = "#/groups";
+  }
+}
+
+async function viewJoinByCode(code) {
+  setTitle("Joining…");
+  setApp(skeletonView(1));
+  try {
+    const g = await api("/api/groups/join", { method: "POST", body: { invite_code: code } });
+    toast(`You're in — welcome to "${g.name}"`, "success");
+    location.hash = `#/groups/${g.id}`;
+  } catch (err) {
+    toast(`That invite link didn't work: ${err.message}`, "error");
+    location.hash = "#/groups";
+  }
+}
+
 function viewRegister() {
   setTitle();
   setApp(`
@@ -842,7 +911,7 @@ function viewRegister() {
       });
       setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name });
       toast(`Account created — welcome, ${data.display_name}`, "success");
-      renderRecoveryCodeScreen(data.recovery_code, () => { location.hash = "#/groups"; });
+      renderRecoveryCodeScreen(data.recovery_code, consumePendingInviteThenNavigate);
     } catch (err) {
       document.getElementById("register-error").textContent = err.message;
       btn.disabled = false;
@@ -1245,6 +1314,7 @@ async function viewGroupDetail(groupId) {
           ${icon("key", 14)} <code>${escapeHtml(group.invite_code)}</code>
           <button class="ghost small" id="copy-invite-btn">${icon("copy", 13)} Copy</button>
         </div>
+        <button class="secondary small" id="share-invite-btn">${icon("chat", 14)} Invite a friend</button>
         <a href="#/groups/${groupId}/chat" class="secondary small" style="display:inline-flex;align-items:center;gap:6px;">${icon("chat", 14)} Group chat</a>
         ${group.is_public ? `<span class="badge">${escapeHtml(categoryLabel(group.category) || "🌐 Public")}</span>` : ""}
       </div>
@@ -1413,6 +1483,14 @@ async function viewGroupDetail(groupId) {
     } catch {
       toast("Couldn't copy — copy it manually", "error");
     }
+  };
+
+  document.getElementById("share-invite-btn").onclick = () => {
+    shareOrCopy({
+      title: "Playwise",
+      text: `Join "${group.name}" on Playwise — predict outcomes, stake play coins, bragging rights on the line.`,
+      url: `${location.origin}/#/join/${group.invite_code}`,
+    });
   };
 
   const settingsForm = document.getElementById("group-settings-form");
@@ -1711,7 +1789,13 @@ async function viewBetDetail(betId) {
     } else {
       bannerText = `${winningOption} won, but nobody staked on it — all stakes were refunded.`;
     }
-    winnerBanner = `<div class="winner-banner">${icon("trophy", 20)} <span>${bannerText}</span></div>`;
+    const myPayout = bet.payouts.find((p) => p.user_id === user.id && p.type === "payout");
+    winnerBanner = `
+      <div class="winner-banner">
+        ${icon("trophy", 20)} <span>${bannerText}</span>
+        ${myPayout ? `<button class="secondary small" id="share-win-btn" style="margin-left:auto;">${icon("chat", 13)} Share your win</button>` : ""}
+      </div>
+    `;
 
     if (bet.payouts.length) {
       const rows = bet.payouts.map((p) => `
@@ -1904,6 +1988,19 @@ async function viewBetDetail(betId) {
       } catch (err) {
         document.getElementById("resolve-error").textContent = err.message;
       }
+    };
+  }
+
+  const shareWinBtn = document.getElementById("share-win-btn");
+  if (shareWinBtn) {
+    shareWinBtn.onclick = () => {
+      const myPayout = bet.payouts.find((p) => p.user_id === user.id && p.type === "payout");
+      const joinUrl = `${location.origin}/#/join/${group.invite_code}`;
+      shareOrCopy({
+        title: "Playwise",
+        text: `I just won ${fmtCoins(myPayout.amount)} coins predicting "${bet.question}" in ${group.name} on Playwise 🎉 Come play:`,
+        url: joinUrl,
+      });
     };
   }
 
