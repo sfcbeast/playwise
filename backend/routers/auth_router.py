@@ -38,7 +38,7 @@ def register(body: RegisterRequest, request: Request, db: Session = Depends(get_
     token = create_access_token(user.id)
     return TokenResponse(
         access_token=token, user_id=user.id, username=user.username, display_name=user.display_name,
-        recovery_code=recovery_code,
+        is_admin=user.is_admin, recovery_code=recovery_code,
     )
 
 
@@ -50,7 +50,8 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
     token = create_access_token(user.id)
     return TokenResponse(
-        access_token=token, user_id=user.id, username=user.username, display_name=user.display_name
+        access_token=token, user_id=user.id, username=user.username, display_name=user.display_name,
+        is_admin=user.is_admin,
     )
 
 

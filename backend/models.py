@@ -52,6 +52,10 @@ class User(Base):
     # is the only self-service path back into an account, since there's no
     # email service wired up to send reset links through.
     recovery_code_hash = Column(String, nullable=True)
+    # No self-service path to this -- nobody starts as admin, including
+    # whoever registers first. Granted manually via direct DB access, same
+    # spirit as everything else in this app that touches trust boundaries.
+    is_admin = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=utcnow)
 
 
@@ -209,3 +213,23 @@ class ChatMessage(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     message = Column(String, nullable=False)
     created_at = Column(DateTime, default=utcnow)
+
+
+class Report(Base):
+    """Site-wide moderation queue -- anyone can flag a chat message or a
+    public group; only an admin can see or act on the queue. This is
+    deliberately separate from group-level moderation (leaders can already
+    delete messages/kick members in their own group) -- it's for things a
+    group leader has no authority over, like abuse in global chat or a
+    public group's name/rules themselves being the problem."""
+    __tablename__ = "reports"
+
+    id = Column(Integer, primary_key=True)
+    reporter_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    target_type = Column(String, nullable=False)  # chat_message | group
+    target_id = Column(Integer, nullable=False)
+    reason = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="open")  # open | resolved
+    created_at = Column(DateTime, default=utcnow)
+    resolved_at = Column(DateTime, nullable=True)
+    resolved_by = Column(Integer, ForeignKey("users.id"), nullable=True)

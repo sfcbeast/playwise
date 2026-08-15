@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from backend.db import sync_schema
-from backend.routers import auth_router, bets, chat, groups, votes, wallet
+from backend.routers import auth_router, bets, chat, groups, reports, votes, wallet
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("playwise")
@@ -24,6 +24,7 @@ app.include_router(wallet.router)
 app.include_router(bets.router)
 app.include_router(votes.router)
 app.include_router(chat.router)
+app.include_router(reports.router)
 
 
 @app.exception_handler(Exception)

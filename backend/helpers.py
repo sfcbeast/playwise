@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from backend.models import Bet, Group, GroupEvent, Membership
+from backend.models import Bet, Group, GroupEvent, Membership, User
 
 
 def get_group_or_404(db: Session, group_id: int) -> Group:
@@ -38,6 +38,11 @@ def require_creator_or_leader(bet: Bet, group: Group, user_id: int):
         raise HTTPException(
             status_code=403, detail="Only the question's creator or the group leader can do this"
         )
+
+
+def require_admin(user: User):
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admins only")
 
 
 def log_event(

@@ -632,6 +632,7 @@ function renderUserBox() {
   box.innerHTML = `
     <a class="ghost nav-link" href="#/discover" title="Discover public groups">${icon("globe", 17)}<span class="nav-link-text">Discover</span></a>
     <a class="ghost nav-link" href="#/chat" title="Global chat">${icon("chat", 17)}<span class="nav-link-text">Chat</span></a>
+    ${user.is_admin ? `<a class="ghost nav-link" href="#/admin/reports" title="Moderation queue">${icon("flag", 17)}<span class="nav-link-text">Reports</span></a>` : ""}
     <span class="name">${escapeHtml(user.display_name)}</span>
     ${avatarHtml(user.display_name, "sm")}
     <button class="ghost icon-btn" id="recovery-code-btn" title="Get account recovery code">${icon("shield", 17)}</button>
@@ -703,6 +704,7 @@ async function render() {
     if (joinLinkMatch) return await viewJoinByCode(joinLinkMatch[1]);
     if (hash === "#/chat") return await viewGlobalChat();
     if (hash === "#/discover") return await viewDiscover();
+    if (hash === "#/admin/reports") return await viewAdminReports();
     if (groupChatMatch) return await viewGroupChat(Number(groupChatMatch[1]));
     if (groupMatch) return await viewGroupDetail(Number(groupMatch[1]));
     if (betMatch) return await viewBetDetail(Number(betMatch[1]));
@@ -746,7 +748,7 @@ function viewLogin() {
         method: "POST",
         body: { username: f.get("username"), password: f.get("password") },
       });
-      setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name });
+      setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name, is_admin: data.is_admin });
       toast(`Welcome back, ${data.display_name}`, "success");
       await consumePendingInviteThenNavigate();
     } catch (err) {
@@ -827,7 +829,7 @@ function viewForgotPassword() {
           new_password: f.get("new_password"),
         },
       });
-      setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name });
+      setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name, is_admin: data.is_admin });
       toast("Password reset", "success");
       renderRecoveryCodeScreen(data.recovery_code, () => { location.hash = "#/groups"; });
     } catch (err) {
@@ -909,7 +911,7 @@ function viewRegister() {
           accepted_terms: f.get("accepted_terms") === "on",
         },
       });
-      setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name });
+      setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name, is_admin: data.is_admin });
       toast(`Account created — welcome, ${data.display_name}`, "success");
       renderRecoveryCodeScreen(data.recovery_code, consumePendingInviteThenNavigate);
     } catch (err) {
@@ -1094,7 +1096,10 @@ function discoverResultRow(g) {
         </div>
         ${joinBtnOrLink}
       </div>
-      ${g.starting_balance ? `<span class="badge" style="margin-top:8px;">${icon("wallet", 11)} Starts with ${fmtCoins(g.starting_balance)} coins</span>` : ""}
+      <div class="row between" style="margin-top:8px;">
+        ${g.starting_balance ? `<span class="badge">${icon("wallet", 11)} Starts with ${fmtCoins(g.starting_balance)} coins</span>` : "<span></span>"}
+        <button class="ghost icon-btn" data-report-group="${g.id}" title="Report this group">${icon("flag", 12)}</button>
+      </div>
       ${g.has_rules ? `
         <div class="rules-panel" id="rules-panel-${g.id}" style="display:none;">
           <div class="rules-text">${escapeHtml(g.rules)}</div>
@@ -1147,6 +1152,9 @@ async function viewDiscover() {
     });
     document.querySelectorAll("[data-confirm-join]").forEach((btn) => {
       btn.onclick = () => doJoin(btn.dataset.confirmJoin, true, btn);
+    });
+    document.querySelectorAll("[data-report-group]").forEach((btn) => {
+      btn.onclick = () => reportContent("group", Number(btn.dataset.reportGroup));
     });
   }
 
@@ -2147,6 +2155,7 @@ async function renderChatView({ apiBase, title, backHref, backLabel, isModerator
             <span class="chat-author">${escapeHtml(m.display_name)}</span>
             <span class="chat-time">${fmtClockTime(m.created_at)}</span>
             ${canDelete ? `<button class="ghost icon-btn chat-delete" data-delete-msg="${m.id}" title="Delete">${icon("x", 11)}</button>` : ""}
+            ${!mine ? `<button class="ghost icon-btn chat-delete" data-report-msg="${m.id}" title="Report">${icon("flag", 11)}</button>` : ""}
           </div>
           <div class="chat-text">${escapeHtml(m.message)}</div>
         </div>
@@ -2189,6 +2198,11 @@ async function renderChatView({ apiBase, title, backHref, backLabel, isModerator
           toast(err.message, "error");
         }
       };
+    });
+    messagesEl.querySelectorAll("[data-report-msg]").forEach((btn) => {
+      if (btn.dataset.wired) return;
+      btn.dataset.wired = "1";
+      btn.onclick = () => reportContent("chat_message", Number(btn.dataset.reportMsg));
     });
   }
   wireDeleteButtons();
@@ -2252,5 +2266,76 @@ async function viewGroupChat(groupId) {
     backHref: `#/groups/${groupId}`,
     backLabel: group.name,
     isModerator: group.leader_id === user.id,
+  });
+}
+
+// ---- moderation: reporting + admin queue ---------------------------------
+// Group leaders already have moderation tools for their own group (delete
+// messages, kick members). This is the layer above that -- for things no
+// leader has authority over, like global chat abuse or a public group's
+// listing itself being the problem. Anyone can flag; only an admin
+// (granted manually, no self-service path) can see or act on the queue.
+
+async function reportContent(targetType, targetId) {
+  const reason = prompt("Why are you reporting this? (visible only to admins)");
+  if (reason === null) return; // cancelled
+  if (!reason.trim()) { toast("A reason is required", "error"); return; }
+  try {
+    await api("/api/reports", { method: "POST", body: { target_type: targetType, target_id: targetId, reason: reason.trim() } });
+    toast("Reported — thanks, an admin will take a look", "success");
+  } catch (err) {
+    toast(err.message, "error");
+  }
+}
+
+async function viewAdminReports() {
+  setTitle("Moderation queue");
+  setApp(skeletonView(2));
+  const reports = await api("/api/admin/reports");
+
+  function reportRow(r) {
+    const actions = r.target_type === "chat_message"
+      ? `<button class="danger small" data-resolve="${r.id}" data-action="delete_content">Delete message</button>`
+      : `<button class="danger small" data-resolve="${r.id}" data-action="unpublish_group">Unpublish group</button>`;
+    return `
+      <div class="card" data-report-row="${r.id}">
+        <div class="row between">
+          <span class="badge">${r.target_type === "chat_message" ? "💬 Message" : "🌐 Group"}</span>
+          <span class="secondary" style="font-size:0.78rem;">reported by ${escapeHtml(r.reporter_display_name)}</span>
+        </div>
+        <p class="muted" style="white-space:pre-wrap;">${escapeHtml(r.target_preview)}</p>
+        <p style="font-size:0.88rem;"><strong>Reason:</strong> ${escapeHtml(r.reason)}</p>
+        <div class="row" style="gap:8px;margin-top:6px;">
+          ${actions}
+          <button class="secondary small" data-resolve="${r.id}" data-action="dismiss">Dismiss</button>
+        </div>
+      </div>
+    `;
+  }
+
+  setApp(`
+    <a href="#/groups" class="row" style="gap:6px;color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;">${icon("arrowLeft", 15)} All groups</a>
+    <div class="card">
+      <h1 class="row" style="gap:8px;">${icon("flag", 20)} Moderation queue</h1>
+      <div class="squiggle"></div>
+      <p class="muted">${reports.length} open report${reports.length === 1 ? "" : "s"}.</p>
+    </div>
+    ${reports.length
+      ? reports.map(reportRow).join("")
+      : `<div class="card empty-state">${icon("inbox", 28)}<p>Nothing to review — the queue is empty.</p></div>`}
+  `);
+
+  document.querySelectorAll("[data-resolve]").forEach((btn) => {
+    btn.onclick = async () => {
+      const action = btn.dataset.action;
+      if (action !== "dismiss" && !confirm("This can't be undone. Continue?")) return;
+      try {
+        await api(`/api/admin/reports/${btn.dataset.resolve}/resolve`, { method: "POST", body: { action } });
+        toast("Report resolved", "success");
+        document.querySelector(`[data-report-row="${btn.dataset.resolve}"]`).remove();
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    };
   });
 }

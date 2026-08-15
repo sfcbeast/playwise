@@ -22,6 +22,7 @@ class TokenResponse(BaseModel):
     user_id: int
     username: str
     display_name: str
+    is_admin: bool = False
     recovery_code: Optional[str] = None  # only ever populated once, at (re)generation
 
 
@@ -262,6 +263,30 @@ class ChatMessageOut(BaseModel):
     display_name: str
     message: str
     created_at: datetime.datetime
+
+
+REPORT_TARGET_TYPES = ["chat_message", "group"]
+
+
+class ReportCreateRequest(BaseModel):
+    target_type: str
+    target_id: int
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class ReportOut(BaseModel):
+    id: int
+    target_type: str
+    target_id: int
+    target_preview: str
+    reason: str
+    reporter_display_name: str
+    status: str
+    created_at: datetime.datetime
+
+
+class ReportResolveRequest(BaseModel):
+    action: str  # dismiss | delete_content | unpublish_group
 
 
 GroupDetail.model_rebuild()
