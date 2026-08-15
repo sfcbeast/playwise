@@ -611,8 +611,19 @@ function renderUserBox() {
     <a class="ghost nav-link" href="#/chat" title="Global chat">${icon("chat", 17)}<span class="nav-link-text">Chat</span></a>
     <span class="name">${escapeHtml(user.display_name)}</span>
     ${avatarHtml(user.display_name, "sm")}
+    <button class="ghost icon-btn" id="recovery-code-btn" title="Get account recovery code">${icon("shield", 17)}</button>
     <button class="ghost icon-btn" id="logout-btn" title="Log out">${icon("logout", 17)}</button>
   `;
+  document.getElementById("recovery-code-btn").onclick = async () => {
+    if (!confirm("Generate a new account recovery code? Any code you saved before this will stop working.")) return;
+    try {
+      const { recovery_code } = await api("/api/account/recovery-code", { method: "POST" });
+      const returnHash = location.hash || "#/groups";
+      renderRecoveryCodeScreen(recovery_code, () => { location.hash = returnHash; render(); });
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  };
   document.getElementById("logout-btn").onclick = () => {
     clearAuth();
     location.hash = "#/login";
@@ -637,11 +648,12 @@ async function render() {
   const hash = location.hash || "#/groups";
   const user = getUser();
 
-  if (!user && hash !== "#/login" && hash !== "#/register") {
+  const loggedOutRoutes = ["#/login", "#/register", "#/forgot-password"];
+  if (!user && !loggedOutRoutes.includes(hash)) {
     location.hash = "#/login";
     return;
   }
-  if (user && (hash === "#/login" || hash === "#/register")) {
+  if (user && loggedOutRoutes.includes(hash)) {
     location.hash = "#/groups";
     return;
   }
@@ -653,6 +665,7 @@ async function render() {
   try {
     if (hash === "#/login") return viewLogin();
     if (hash === "#/register") return viewRegister();
+    if (hash === "#/forgot-password") return viewForgotPassword();
     if (hash === "#/chat") return await viewGlobalChat();
     if (hash === "#/discover") return await viewDiscover();
     if (groupChatMatch) return await viewGroupChat(Number(groupChatMatch[1]));
@@ -684,6 +697,7 @@ function viewLogin() {
           <button type="submit">Log in</button>
         </form>
         <p class="center muted section-gap">No account? <a href="#/register">Register</a></p>
+        <p class="center muted" style="margin-top:4px;"><a href="#/forgot-password">Forgot your password?</a></p>
       </div>
     </div>
   `);
@@ -703,6 +717,86 @@ function viewLogin() {
     } catch (err) {
       document.getElementById("login-error").textContent = err.message;
     } finally {
+      btn.disabled = false;
+    }
+  };
+}
+
+// Shown once right after a recovery code is (re)generated -- at
+// registration, after a successful reset, or from the account menu.
+// Forces an explicit "I've saved it" click rather than auto-navigating,
+// since this is the only copy of the code the user will ever see.
+function renderRecoveryCodeScreen(code, onContinue) {
+  setTitle("Save your recovery code");
+  setApp(`
+    <div class="auth-shell">
+      <div class="card">
+        <div class="brand-mark">${icon("shield", 20)}</div>
+        <h1 class="center">Save your recovery code</h1>
+        <p class="tagline center">This is the only way back into your account if you forget your password — we can't show it again.</p>
+        <div class="recovery-code-box">${escapeHtml(code)}</div>
+        <button type="button" class="secondary" id="copy-recovery-btn">${icon("copy", 15)} Copy code</button>
+        <label class="terms-check section-gap">
+          <input type="checkbox" id="recovery-saved-check" style="width:auto;" required />
+          <span>I've saved this code somewhere safe</span>
+        </label>
+        <button type="button" id="recovery-continue-btn" disabled>Continue</button>
+      </div>
+    </div>
+  `);
+  document.getElementById("copy-recovery-btn").onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      toast("Recovery code copied", "success");
+    } catch {
+      toast("Couldn't copy — copy it manually", "error");
+    }
+  };
+  const savedCheck = document.getElementById("recovery-saved-check");
+  const continueBtn = document.getElementById("recovery-continue-btn");
+  savedCheck.onchange = () => { continueBtn.disabled = !savedCheck.checked; };
+  continueBtn.onclick = onContinue;
+}
+
+function viewForgotPassword() {
+  setTitle("Forgot password");
+  setApp(`
+    <div class="auth-shell">
+      <div class="card">
+        <div class="brand-mark">${icon("shield", 20)}</div>
+        <h1 class="center">Reset your password</h1>
+        <p class="tagline center">Enter your username and the recovery code you saved when you signed up.</p>
+        <form id="forgot-form" class="stack">
+          <input name="username" placeholder="Username" autocomplete="username" required />
+          <input name="recovery_code" placeholder="Recovery code (XXXX-XXXX-XXXX)" autocomplete="off" required />
+          <input name="new_password" type="password" placeholder="New password (6+ characters)" autocomplete="new-password" required minlength="6" />
+          <div class="error" id="forgot-error"></div>
+          <button type="submit">Reset password</button>
+        </form>
+        <p class="center muted section-gap">Remembered it? <a href="#/login">Log in</a></p>
+        <p class="center muted" style="font-size:0.8rem;margin-top:10px;">No recovery code saved? There's no email on file to reset through — you'll need to create a new account.</p>
+      </div>
+    </div>
+  `);
+  document.getElementById("forgot-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const btn = e.target.querySelector("button[type=submit]");
+    btn.disabled = true;
+    try {
+      const data = await api("/api/reset-password", {
+        method: "POST",
+        body: {
+          username: f.get("username"),
+          recovery_code: f.get("recovery_code").trim(),
+          new_password: f.get("new_password"),
+        },
+      });
+      setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name });
+      toast("Password reset", "success");
+      renderRecoveryCodeScreen(data.recovery_code, () => { location.hash = "#/groups"; });
+    } catch (err) {
+      document.getElementById("forgot-error").textContent = err.message;
       btn.disabled = false;
     }
   };
@@ -748,10 +842,9 @@ function viewRegister() {
       });
       setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name });
       toast(`Account created — welcome, ${data.display_name}`, "success");
-      location.hash = "#/groups";
+      renderRecoveryCodeScreen(data.recovery_code, () => { location.hash = "#/groups"; });
     } catch (err) {
       document.getElementById("register-error").textContent = err.message;
-    } finally {
       btn.disabled = false;
     }
   };
@@ -792,6 +885,24 @@ async function viewGroups() {
       <div class="section-gap"></div>
       ${groupsHtml}
     </div>
+
+    ${!groups.length ? `
+      <div class="card onboarding-card">
+        <h3 class="card-title">${icon("bolt", 16)} How Playwise works</h3>
+        <div class="onboarding-step">
+          <span class="onboarding-num">1</span>
+          <div><strong>Create or join a group</strong><p class="muted">Start one with friends, or find a public one in Discover.</p></div>
+        </div>
+        <div class="onboarding-step">
+          <span class="onboarding-num">2</span>
+          <div><strong>Ask a question, stake your coins</strong><p class="muted">"Will it rain Saturday?" — pick a side, put some coins on it.</p></div>
+        </div>
+        <div class="onboarding-step">
+          <span class="onboarding-num">3</span>
+          <div><strong>When it resolves, winners split the pool</strong><p class="muted">Everyone who called it right splits the whole pot, in proportion to what they staked. Play money only — nothing real ever changes hands.</p></div>
+        </div>
+      </div>
+    ` : ""}
 
     <a href="#/discover" class="card discover-banner clickable-card">
       <div class="row between">

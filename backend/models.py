@@ -25,6 +25,16 @@ def gen_invite_code():
     return secrets.token_hex(4)
 
 
+# Excludes visually ambiguous characters (0/O, 1/I/L) so a hand-copied code
+# doesn't fail to verify because of a misread character.
+_RECOVERY_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+
+def gen_recovery_code():
+    groups = ["".join(secrets.choice(_RECOVERY_ALPHABET) for _ in range(4)) for _ in range(3)]
+    return "-".join(groups)
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -37,6 +47,11 @@ class User(Base):
     # future "did users actually know this" question) needs, not just
     # footer text nobody reads.
     terms_accepted_at = Column(DateTime, nullable=True)
+    # Hashed like a password, never stored or logged in plaintext -- the
+    # plaintext code is shown to the user exactly once (at generation) and
+    # is the only self-service path back into an account, since there's no
+    # email service wired up to send reset links through.
+    recovery_code_hash = Column(String, nullable=True)
     created_at = Column(DateTime, default=utcnow)
 
 

@@ -49,7 +49,10 @@ def register(client, username, display_name=None):
     )
     assert res.status_code == 200, res.text
     data = res.json()
-    return {"token": data["access_token"], "id": data["user_id"], "auth": {"Authorization": f"Bearer {data['access_token']}"}}
+    return {
+        "token": data["access_token"], "id": data["user_id"], "username": data["username"],
+        "recovery_code": data["recovery_code"], "auth": {"Authorization": f"Bearer {data['access_token']}"},
+    }
 
 
 def create_group(client, user, name):

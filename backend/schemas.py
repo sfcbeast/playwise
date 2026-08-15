@@ -22,6 +22,17 @@ class TokenResponse(BaseModel):
     user_id: int
     username: str
     display_name: str
+    recovery_code: Optional[str] = None  # only ever populated once, at (re)generation
+
+
+class ResetPasswordRequest(BaseModel):
+    username: str
+    recovery_code: str
+    new_password: str = Field(min_length=6)
+
+
+class RecoveryCodeOut(BaseModel):
+    recovery_code: str
 
 
 # Fixed, validated set -- keeps the discovery filter meaningful instead of
