@@ -24,13 +24,31 @@ class TokenResponse(BaseModel):
     display_name: str
 
 
+# Fixed, validated set -- keeps the discovery filter meaningful instead of
+# accumulating one-off free-text categories nobody else uses.
+GROUP_CATEGORIES = ["general", "sports", "politics", "current_affairs", "stocks", "entertainment"]
+
+
 class GroupCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     parent_group_id: Optional[int] = None
+    is_public: bool = False
+    category: Optional[str] = None
+    rules: Optional[str] = Field(default=None, max_length=2000)
 
 
 class GroupJoinRequest(BaseModel):
     invite_code: str
+
+
+class PublicJoinRequest(BaseModel):
+    accepted_rules: bool = False
+
+
+class GroupSettingsUpdateRequest(BaseModel):
+    is_public: bool
+    category: Optional[str] = None
+    rules: Optional[str] = Field(default=None, max_length=2000)
 
 
 class GroupSummary(BaseModel):
@@ -41,6 +59,20 @@ class GroupSummary(BaseModel):
     is_member: bool
     my_balance: int
     parent_group_name: Optional[str] = None
+    is_public: bool = False
+    category: Optional[str] = None
+
+
+class PublicGroupOut(BaseModel):
+    id: int
+    name: str
+    category: Optional[str]
+    leader_display_name: str
+    member_count: int
+    has_rules: bool
+    rules: Optional[str]
+    is_member: bool
+    created_at: datetime.datetime
 
 
 class MemberBalance(BaseModel):
@@ -72,6 +104,9 @@ class GroupDetail(BaseModel):
     my_balance: int
     parent_group_id: Optional[int]
     parent_group_name: Optional[str]
+    is_public: bool = False
+    category: Optional[str] = None
+    rules: Optional[str] = None
     subgroups: List[GroupSummary]
     invitable_members: List[MemberBalance]
     members: List[MemberBalance]

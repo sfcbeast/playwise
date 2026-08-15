@@ -9,17 +9,27 @@ from backend.db import get_db
 from backend.helpers import get_group_or_404, get_membership_or_403, log_event, require_leader
 from backend.models import Bet, BetHiddenFrom, Group, GroupEvent, Membership, Stake, TopUpRequest, Transaction, User
 from backend.schemas import (
+    GROUP_CATEGORIES,
     BetSummary,
     EventOut,
     GroupCreateRequest,
     GroupDetail,
     GroupJoinRequest,
+    GroupSettingsUpdateRequest,
     GroupSummary,
     MemberBalance,
+    PublicGroupOut,
+    PublicJoinRequest,
     TopUpRequestOut,
 )
 
 router = APIRouter(prefix="/api/groups", tags=["groups"])
+
+
+def _validate_category(category):
+    if category is not None and category not in GROUP_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Category must be one of: {', '.join(GROUP_CATEGORIES)}")
+    return category
 
 
 def _option_totals(db: Session, bet: Bet):
@@ -80,7 +90,13 @@ def create_group(body: GroupCreateRequest, db: Session = Depends(get_db), user: 
         get_group_or_404(db, body.parent_group_id)
         get_membership_or_403(db, body.parent_group_id, user.id)
 
-    group = Group(name=body.name, leader_id=user.id, parent_group_id=body.parent_group_id)
+    category = _validate_category(body.category)
+
+    group = Group(
+        name=body.name, leader_id=user.id, parent_group_id=body.parent_group_id,
+        is_public=body.is_public, category=category if body.is_public else None,
+        rules=(body.rules or None) if body.is_public else None,
+    )
     db.add(group)
     db.flush()
     membership = Membership(user_id=user.id, group_id=group.id, balance=0)
@@ -94,7 +110,7 @@ def create_group(body: GroupCreateRequest, db: Session = Depends(get_db), user: 
     db.refresh(group)
     return GroupSummary(
         id=group.id, name=group.name, invite_code=group.invite_code, leader_id=group.leader_id,
-        is_member=True, my_balance=0,
+        is_member=True, my_balance=0, is_public=group.is_public, category=group.category,
     )
 
 
@@ -119,6 +135,8 @@ def join_group(body: GroupJoinRequest, db: Session = Depends(get_db), user: User
         leader_id=group.leader_id,
         is_member=True,
         my_balance=existing.balance,
+        is_public=group.is_public,
+        category=group.category,
     )
 
 
@@ -133,9 +151,85 @@ def list_my_groups(db: Session = Depends(get_db), user: User = Depends(get_curre
             GroupSummary(
                 id=group.id, name=group.name, invite_code=group.invite_code, leader_id=group.leader_id,
                 is_member=True, my_balance=m.balance, parent_group_name=parent_name,
+                is_public=group.is_public, category=group.category,
             )
         )
     return result
+
+
+@router.get("/discover", response_model=list[PublicGroupOut])
+def discover_groups(
+    q: str = "", category: str = "", db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    """Reddit-style discovery: search/browse public groups by name and/or
+    category. Only groups the leader opted into making public show up here
+    -- everything else stays exactly as invite-only as before."""
+    if category:
+        _validate_category(category)
+
+    query = db.query(Group).filter(Group.is_public.is_(True))
+    if q:
+        query = query.filter(Group.name.ilike(f"%{q}%"))
+    if category:
+        query = query.filter(Group.category == category)
+
+    my_group_ids = {m.group_id for m in db.query(Membership).filter(Membership.user_id == user.id).all()}
+
+    out = []
+    for group in query.order_by(Group.created_at.desc()).limit(50).all():
+        member_count = db.query(Membership).filter(Membership.group_id == group.id).count()
+        leader = db.get(User, group.leader_id)
+        out.append(
+            PublicGroupOut(
+                id=group.id, name=group.name, category=group.category,
+                leader_display_name=leader.display_name, member_count=member_count,
+                has_rules=bool(group.rules), rules=group.rules,
+                is_member=group.id in my_group_ids, created_at=group.created_at,
+            )
+        )
+    return out
+
+
+@router.post("/{group_id}/join-public", response_model=GroupSummary)
+def join_public_group(
+    group_id: int, body: PublicJoinRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    group = get_group_or_404(db, group_id)
+    if not group.is_public:
+        raise HTTPException(status_code=403, detail="This group isn't open for public joining")
+    if group.rules and not body.accepted_rules:
+        raise HTTPException(status_code=400, detail="You need to accept this group's rules to join")
+
+    existing = db.query(Membership).filter(Membership.group_id == group_id, Membership.user_id == user.id).first()
+    if existing is None:
+        existing = Membership(
+            user_id=user.id, group_id=group_id, balance=0,
+            rules_accepted_at=datetime.datetime.utcnow() if group.rules else None,
+        )
+        db.add(existing)
+        log_event(db, group_id, user.id, "member_joined", f"{user.display_name} joined from Discover")
+        db.commit()
+
+    return GroupSummary(
+        id=group.id, name=group.name, invite_code=group.invite_code, leader_id=group.leader_id,
+        is_member=True, my_balance=existing.balance, is_public=group.is_public, category=group.category,
+    )
+
+
+@router.patch("/{group_id}/settings", response_model=dict)
+def update_group_settings(
+    group_id: int, body: GroupSettingsUpdateRequest, db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    group = get_group_or_404(db, group_id)
+    require_leader(group, user.id)
+    category = _validate_category(body.category)
+
+    group.is_public = body.is_public
+    group.category = category if body.is_public else None
+    group.rules = (body.rules or None) if body.is_public else None
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/{group_id}", response_model=GroupDetail)
@@ -194,6 +288,7 @@ def get_group(group_id: int, db: Session = Depends(get_db), user: User = Depends
             GroupSummary(
                 id=sg.id, name=sg.name, invite_code=sg.invite_code, leader_id=sg.leader_id,
                 is_member=sg_membership is not None, my_balance=sg_membership.balance if sg_membership else 0,
+                is_public=sg.is_public, category=sg.category,
             )
         )
 
@@ -220,7 +315,8 @@ def get_group(group_id: int, db: Session = Depends(get_db), user: User = Depends
     return GroupDetail(
         id=group.id, name=group.name, invite_code=group.invite_code, leader_id=group.leader_id,
         my_balance=my_membership.balance, parent_group_id=group.parent_group_id,
-        parent_group_name=parent_group_name, subgroups=subgroups, invitable_members=invitable_members,
+        parent_group_name=parent_group_name, is_public=group.is_public, category=group.category,
+        rules=group.rules, subgroups=subgroups, invitable_members=invitable_members,
         members=members, bets=bets, pending_topups=pending_topups,
         latest_event_id=latest_event_id,
     )

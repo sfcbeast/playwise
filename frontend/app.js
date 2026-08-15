@@ -21,6 +21,9 @@ const ICON_PATHS = {
   eyeOff: '<path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>',
   chat: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>',
   image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>',
+  globe: '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z"/>',
+  shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/>',
 };
 
 function icon(name, size = 18) {
@@ -45,6 +48,22 @@ const AVATAR_EMOJI = [
   "🦊", "🐼", "🐨", "🦁", "🐸", "🐙", "🦄", "🐢", "🐬", "🐧", "🐝", "🐰",
   "🐳", "🐱", "🐶", "🦒", "🦓", "🐹", "🐯", "🐵", "🐴", "🐮", "🐷", "🦆",
 ];
+
+// Mirrors backend GROUP_CATEGORIES exactly -- keep in sync with
+// schemas.py's GROUP_CATEGORIES if this list ever changes.
+const GROUP_CATEGORIES = [
+  { value: "general", label: "General", emoji: "💬" },
+  { value: "sports", label: "Sports", emoji: "🏀" },
+  { value: "politics", label: "Politics", emoji: "🏛️" },
+  { value: "current_affairs", label: "Current Affairs", emoji: "📰" },
+  { value: "stocks", label: "Stocks", emoji: "📈" },
+  { value: "entertainment", label: "Entertainment", emoji: "🎬" },
+];
+
+function categoryLabel(value) {
+  const cat = GROUP_CATEGORIES.find((c) => c.value === value);
+  return cat ? `${cat.emoji} ${cat.label}` : null;
+}
 
 function hashSeed(str) {
   let h = 0;
@@ -588,7 +607,8 @@ function renderUserBox() {
   const user = getUser();
   if (!user) { box.innerHTML = ""; return; }
   box.innerHTML = `
-    <a class="ghost icon-btn" href="#/chat" title="Global chat">${icon("chat", 17)}</a>
+    <a class="ghost nav-link" href="#/discover" title="Discover public groups">${icon("globe", 17)}<span class="nav-link-text">Discover</span></a>
+    <a class="ghost nav-link" href="#/chat" title="Global chat">${icon("chat", 17)}<span class="nav-link-text">Chat</span></a>
     <span class="name">${escapeHtml(user.display_name)}</span>
     ${avatarHtml(user.display_name, "sm")}
     <button class="ghost icon-btn" id="logout-btn" title="Log out">${icon("logout", 17)}</button>
@@ -634,6 +654,7 @@ async function render() {
     if (hash === "#/login") return viewLogin();
     if (hash === "#/register") return viewRegister();
     if (hash === "#/chat") return await viewGlobalChat();
+    if (hash === "#/discover") return await viewDiscover();
     if (groupChatMatch) return await viewGroupChat(Number(groupChatMatch[1]));
     if (groupMatch) return await viewGroupDetail(Number(groupMatch[1]));
     if (betMatch) return await viewBetDetail(Number(betMatch[1]));
@@ -754,7 +775,10 @@ async function viewGroups() {
               ${g.parent_group_name ? `<div class="secondary">↳ inside ${escapeHtml(g.parent_group_name)}</div>` : ""}
             </div>
           </div>
-          <span class="amount">${fmtCoins(g.my_balance)}</span>
+          <span class="row" style="gap:8px;">
+            ${g.is_public ? `<span class="badge">${escapeHtml(categoryLabel(g.category) || "🌐 Public")}</span>` : ""}
+            <span class="amount">${fmtCoins(g.my_balance)}</span>
+          </span>
         </a>
       `).join("")
     : `<div class="empty-state">${icon("users", 28)}<p>${escapeHtml(pick(NO_GROUPS_MESSAGES))}</p></div>`;
@@ -768,11 +792,48 @@ async function viewGroups() {
       <div class="section-gap"></div>
       ${groupsHtml}
     </div>
+
+    <a href="#/discover" class="card discover-banner clickable-card">
+      <div class="row between">
+        <div class="row" style="gap:12px;">
+          ${icon("globe", 24)}
+          <div>
+            <div class="primary" style="font-weight:750;">Discover public groups</div>
+            <div class="secondary" style="font-size:0.85rem;">Sports, politics, stocks, and more — search and jump in</div>
+          </div>
+        </div>
+        ${icon("search", 18)}
+      </div>
+    </a>
+
+    <a href="#/chat" class="card chat-banner clickable-card">
+      <div class="row between">
+        <div class="row" style="gap:12px;">
+          ${icon("chat", 24)}
+          <div>
+            <div class="primary" style="font-weight:750;">Global chat</div>
+            <div class="secondary" style="font-size:0.85rem;">Everyone on Playwise, one room — say something</div>
+          </div>
+        </div>
+        ${icon("arrowLeft", 16)}
+      </div>
+    </a>
+
     ${adSlot("groups-top", "728x90 leaderboard")}
     <div class="card">
       <h3 class="card-title">${icon("plus", 16)} Create a group</h3>
-      <form id="create-group-form" class="form-inline">
+      <form id="create-group-form" class="stack">
         <input name="name" placeholder="Group name" required />
+        <label class="terms-check">
+          <input type="checkbox" id="public-toggle" style="width:auto;" />
+          <span>${icon("globe", 14)} Make this a public group — anyone can find and join it from Discover</span>
+        </label>
+        <div id="public-options" class="stack" style="display:none;">
+          <select name="category" id="category-select">
+            ${GROUP_CATEGORIES.map((c) => `<option value="${c.value}">${c.emoji} ${c.label}</option>`).join("")}
+          </select>
+          <textarea name="rules" placeholder="Rules for new joiners (optional) — e.g. be respectful, no spam, stakes are final" rows="3"></textarea>
+        </div>
         <button type="submit">Create</button>
       </form>
       <div class="error" id="create-group-error"></div>
@@ -787,11 +848,26 @@ async function viewGroups() {
     </div>
   `);
 
+  const publicToggle = document.getElementById("public-toggle");
+  const publicOptions = document.getElementById("public-options");
+  publicToggle.onchange = () => {
+    publicOptions.style.display = publicToggle.checked ? "" : "none";
+  };
+
   document.getElementById("create-group-form").onsubmit = async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
+    const is_public = publicToggle.checked;
     try {
-      const g = await api("/api/groups", { method: "POST", body: { name: f.get("name") } });
+      const g = await api("/api/groups", {
+        method: "POST",
+        body: {
+          name: f.get("name"),
+          is_public,
+          category: is_public ? f.get("category") : null,
+          rules: is_public ? (f.get("rules") || null) : null,
+        },
+      });
       toast(`"${g.name}" is up and running`, "success");
       location.hash = `#/groups/${g.id}`;
     } catch (err) {
@@ -810,6 +886,133 @@ async function viewGroups() {
       document.getElementById("join-group-error").textContent = err.message;
     }
   };
+}
+
+// ---- views: discover -------------------------------------------------
+
+function discoverResultRow(g) {
+  const joinBtnOrLink = g.is_member
+    ? `<a href="#/groups/${g.id}" class="secondary small">Open</a>`
+    : g.has_rules
+      ? `<button class="secondary small" data-show-rules="${g.id}">Review & join</button>`
+      : `<button class="secondary small" data-join-public="${g.id}">Join</button>`;
+
+  return `
+    <div class="card discover-card" data-discover-card="${g.id}">
+      <div class="row between">
+        <div class="identity">
+          ${avatarHtml(g.name)}
+          <div class="meta">
+            <div class="primary">${escapeHtml(g.name)}</div>
+            <div class="secondary">${categoryLabel(g.category) || "💬 General"} · ${g.member_count} member${g.member_count === 1 ? "" : "s"} · led by ${escapeHtml(g.leader_display_name)}</div>
+          </div>
+        </div>
+        ${joinBtnOrLink}
+      </div>
+      ${g.has_rules ? `
+        <div class="rules-panel" id="rules-panel-${g.id}" style="display:none;">
+          <div class="rules-text">${escapeHtml(g.rules)}</div>
+          <label class="terms-check">
+            <input type="checkbox" data-accept-rules="${g.id}" />
+            <span>I've read the rules and agree to follow them</span>
+          </label>
+          <button class="small" data-confirm-join="${g.id}" disabled>Join group</button>
+        </div>
+      ` : ""}
+    </div>
+  `;
+}
+
+async function viewDiscover() {
+  setTitle("Discover");
+  setApp(skeletonView(3));
+
+  let currentQuery = "";
+  let currentCategory = "";
+
+  async function loadResults() {
+    const params = new URLSearchParams();
+    if (currentQuery) params.set("q", currentQuery);
+    if (currentCategory) params.set("category", currentCategory);
+    const results = await api(`/api/groups/discover?${params.toString()}`);
+    const resultsEl = document.getElementById("discover-results");
+    resultsEl.innerHTML = results.length
+      ? results.map(discoverResultRow).join("")
+      : `<div class="empty-state">${icon("search", 24)}<p>Nothing matches yet — try a different search or category.</p></div>`;
+    wireResultActions();
+  }
+
+  function wireResultActions() {
+    document.querySelectorAll("[data-show-rules]").forEach((btn) => {
+      btn.onclick = () => {
+        const id = btn.dataset.showRules;
+        document.getElementById(`rules-panel-${id}`).style.display = "";
+        btn.style.display = "none";
+      };
+    });
+    document.querySelectorAll("[data-accept-rules]").forEach((cb) => {
+      cb.onchange = () => {
+        const id = cb.dataset.acceptRules;
+        document.querySelector(`[data-confirm-join="${id}"]`).disabled = !cb.checked;
+      };
+    });
+    document.querySelectorAll("[data-join-public]").forEach((btn) => {
+      btn.onclick = () => doJoin(btn.dataset.joinPublic, false, btn);
+    });
+    document.querySelectorAll("[data-confirm-join]").forEach((btn) => {
+      btn.onclick = () => doJoin(btn.dataset.confirmJoin, true, btn);
+    });
+  }
+
+  async function doJoin(groupId, acceptedRules, btn) {
+    btn.disabled = true;
+    try {
+      const g = await api(`/api/groups/${groupId}/join-public`, {
+        method: "POST",
+        body: { accepted_rules: acceptedRules },
+      });
+      toast(`You're in — welcome to "${g.name}"`, "success");
+      location.hash = `#/groups/${g.id}`;
+    } catch (err) {
+      toast(err.message, "error");
+      btn.disabled = false;
+    }
+  }
+
+  setApp(`
+    <a href="#/groups" class="row" style="gap:6px;color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;">${icon("arrowLeft", 15)} All groups</a>
+    <div class="card">
+      <h1 class="row" style="gap:8px;">${icon("globe", 20)} Discover</h1>
+      <div class="squiggle"></div>
+      <p class="muted greeting-subtitle section-gap">Public groups anyone can search and join.</p>
+      <form id="discover-search-form" class="form-inline section-gap">
+        <input name="q" placeholder="Search public groups…" autocomplete="off" />
+        <button type="submit">${icon("search", 15)} Search</button>
+      </form>
+      <div class="row section-gap" id="category-chips">
+        <button type="button" class="chip active" data-category="">All</button>
+        ${GROUP_CATEGORIES.map((c) => `<button type="button" class="chip" data-category="${c.value}">${c.emoji} ${c.label}</button>`).join("")}
+      </div>
+    </div>
+    <div id="discover-results">${skeletonView(2)}</div>
+  `);
+
+  document.getElementById("discover-search-form").onsubmit = async (e) => {
+    e.preventDefault();
+    currentQuery = new FormData(e.target).get("q") || "";
+    await loadResults();
+  };
+
+  document.querySelectorAll("[data-category]").forEach((chip) => {
+    chip.onclick = async () => {
+      document.querySelectorAll("[data-category]").forEach((c) => c.classList.remove("active"));
+      chip.classList.add("active");
+      currentCategory = chip.dataset.category;
+      await loadResults();
+    };
+  });
+
+  await loadResults();
 }
 
 async function viewGroupDetail(groupId) {
@@ -926,8 +1129,36 @@ async function viewGroupDetail(groupId) {
           <button class="ghost small" id="copy-invite-btn">${icon("copy", 13)} Copy</button>
         </div>
         <a href="#/groups/${groupId}/chat" class="secondary small" style="display:inline-flex;align-items:center;gap:6px;">${icon("chat", 14)} Group chat</a>
+        ${group.is_public ? `<span class="badge">${escapeHtml(categoryLabel(group.category) || "🌐 Public")}</span>` : ""}
       </div>
     </div>
+
+    ${!isLeader && group.is_public && group.rules ? `
+      <div class="card">
+        <h3 class="card-title">${icon("shield", 16)} Group rules</h3>
+        <p class="muted" style="white-space:pre-wrap;">${escapeHtml(group.rules)}</p>
+      </div>
+    ` : ""}
+
+    ${isLeader ? `
+      <div class="card">
+        <h3 class="card-title">${icon("shield", 16)} Visibility & rules</h3>
+        <form id="group-settings-form" class="stack">
+          <label class="terms-check">
+            <input type="checkbox" id="settings-public-toggle" style="width:auto;" ${group.is_public ? "checked" : ""} />
+            <span>${icon("globe", 14)} Public — listed in Discover for anyone to search and join</span>
+          </label>
+          <div id="settings-public-options" class="stack" style="display:${group.is_public ? "" : "none"};">
+            <select name="category" id="settings-category-select">
+              ${GROUP_CATEGORIES.map((c) => `<option value="${c.value}" ${group.category === c.value ? "selected" : ""}>${c.emoji} ${c.label}</option>`).join("")}
+            </select>
+            <textarea name="rules" placeholder="Rules for new joiners (optional)" rows="3">${escapeHtml(group.rules || "")}</textarea>
+          </div>
+          <button type="submit" class="secondary small" style="align-self:flex-start;">Save</button>
+        </form>
+        <div class="error" id="group-settings-error"></div>
+      </div>
+    ` : ""}
 
     <div class="card">
       <h3 class="card-title">${icon("plus", 16)} Request a top-up</h3>
@@ -1063,6 +1294,34 @@ async function viewGroupDetail(groupId) {
       toast("Couldn't copy — copy it manually", "error");
     }
   };
+
+  const settingsForm = document.getElementById("group-settings-form");
+  if (settingsForm) {
+    const settingsPublicToggle = document.getElementById("settings-public-toggle");
+    const settingsPublicOptions = document.getElementById("settings-public-options");
+    settingsPublicToggle.onchange = () => {
+      settingsPublicOptions.style.display = settingsPublicToggle.checked ? "" : "none";
+    };
+    settingsForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      const is_public = settingsPublicToggle.checked;
+      try {
+        await api(`/api/groups/${groupId}/settings`, {
+          method: "PATCH",
+          body: {
+            is_public,
+            category: is_public ? f.get("category") : null,
+            rules: is_public ? (f.get("rules") || null) : null,
+          },
+        });
+        toast("Group settings saved", "success");
+        await viewGroupDetail(groupId);
+      } catch (err) {
+        document.getElementById("group-settings-error").textContent = err.message;
+      }
+    };
+  }
 
   const leaderVoteForm = document.getElementById("start-leader-vote-form");
   if (leaderVoteForm) {

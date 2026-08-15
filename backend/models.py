@@ -3,6 +3,7 @@ import secrets
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     Column,
     DateTime,
     ForeignKey,
@@ -47,6 +48,12 @@ class Group(Base):
     invite_code = Column(String, unique=True, nullable=False, default=gen_invite_code, index=True)
     leader_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     parent_group_id = Column(Integer, ForeignKey("groups.id"), nullable=True)
+    # Discovery: a public group is searchable/joinable by anyone without an
+    # invite code (subject to accepting the leader's rules, if any are set).
+    # Private groups (the default -- existing behavior) never show up there.
+    is_public = Column(Boolean, nullable=False, default=False)
+    category = Column(String, nullable=True)
+    rules = Column(Text, nullable=True)
     created_at = Column(DateTime, default=utcnow)
 
     leader = relationship("User")
@@ -60,6 +67,10 @@ class Membership(Base):
     group_id = Column(Integer, ForeignKey("groups.id"), nullable=False)
     balance = Column(Integer, nullable=False, default=0)
     joined_at = Column(DateTime, default=utcnow)
+    # Set only when joining a public group that had rules at the time --
+    # an audit trail mirroring User.terms_accepted_at, so "did they actually
+    # agree to this" has an answer beyond footer text nobody reads.
+    rules_accepted_at = Column(DateTime, nullable=True)
 
     user = relationship("User")
     group = relationship("Group")
