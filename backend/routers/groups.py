@@ -91,15 +91,21 @@ def create_group(body: GroupCreateRequest, db: Session = Depends(get_db), user: 
         get_membership_or_403(db, body.parent_group_id, user.id)
 
     category = _validate_category(body.category)
+    starting_balance = body.starting_balance if body.is_public else None
 
     group = Group(
         name=body.name, leader_id=user.id, parent_group_id=body.parent_group_id,
         is_public=body.is_public, category=category if body.is_public else None,
         rules=(body.rules or None) if body.is_public else None,
+        starting_balance=starting_balance,
     )
     db.add(group)
     db.flush()
-    membership = Membership(user_id=user.id, group_id=group.id, balance=0)
+    # The leader gets the same starting balance as anyone who joins later --
+    # otherwise "everyone starts even" would already be false for the one
+    # person who's there from the start.
+    initial_balance = starting_balance or 0
+    membership = Membership(user_id=user.id, group_id=group.id, balance=initial_balance)
     db.add(membership)
     if body.parent_group_id is not None:
         log_event(
@@ -110,7 +116,8 @@ def create_group(body: GroupCreateRequest, db: Session = Depends(get_db), user: 
     db.refresh(group)
     return GroupSummary(
         id=group.id, name=group.name, invite_code=group.invite_code, leader_id=group.leader_id,
-        is_member=True, my_balance=0, is_public=group.is_public, category=group.category,
+        is_member=True, my_balance=initial_balance, is_public=group.is_public, category=group.category,
+        starting_balance=group.starting_balance,
     )
 
 
@@ -124,7 +131,7 @@ def join_group(body: GroupJoinRequest, db: Session = Depends(get_db), user: User
         db.query(Membership).filter(Membership.group_id == group.id, Membership.user_id == user.id).first()
     )
     if existing is None:
-        existing = Membership(user_id=user.id, group_id=group.id, balance=0)
+        existing = Membership(user_id=user.id, group_id=group.id, balance=group.starting_balance or 0)
         db.add(existing)
         db.commit()
 
@@ -137,6 +144,7 @@ def join_group(body: GroupJoinRequest, db: Session = Depends(get_db), user: User
         my_balance=existing.balance,
         is_public=group.is_public,
         category=group.category,
+        starting_balance=group.starting_balance,
     )
 
 
@@ -151,7 +159,7 @@ def list_my_groups(db: Session = Depends(get_db), user: User = Depends(get_curre
             GroupSummary(
                 id=group.id, name=group.name, invite_code=group.invite_code, leader_id=group.leader_id,
                 is_member=True, my_balance=m.balance, parent_group_name=parent_name,
-                is_public=group.is_public, category=group.category,
+                is_public=group.is_public, category=group.category, starting_balance=group.starting_balance,
             )
         )
     return result
@@ -183,7 +191,7 @@ def discover_groups(
             PublicGroupOut(
                 id=group.id, name=group.name, category=group.category,
                 leader_display_name=leader.display_name, member_count=member_count,
-                has_rules=bool(group.rules), rules=group.rules,
+                has_rules=bool(group.rules), rules=group.rules, starting_balance=group.starting_balance,
                 is_member=group.id in my_group_ids, created_at=group.created_at,
             )
         )
@@ -203,7 +211,7 @@ def join_public_group(
     existing = db.query(Membership).filter(Membership.group_id == group_id, Membership.user_id == user.id).first()
     if existing is None:
         existing = Membership(
-            user_id=user.id, group_id=group_id, balance=0,
+            user_id=user.id, group_id=group_id, balance=group.starting_balance or 0,
             rules_accepted_at=datetime.datetime.utcnow() if group.rules else None,
         )
         db.add(existing)
@@ -213,6 +221,7 @@ def join_public_group(
     return GroupSummary(
         id=group.id, name=group.name, invite_code=group.invite_code, leader_id=group.leader_id,
         is_member=True, my_balance=existing.balance, is_public=group.is_public, category=group.category,
+        starting_balance=group.starting_balance,
     )
 
 
@@ -228,6 +237,10 @@ def update_group_settings(
     group.is_public = body.is_public
     group.category = category if body.is_public else None
     group.rules = (body.rules or None) if body.is_public else None
+    # Only ever affects members who join from here on -- changing this never
+    # touches balances already handed out, same as a top-up never retroactively
+    # changes anyone else's.
+    group.starting_balance = body.starting_balance if body.is_public else None
     db.commit()
     return {"ok": True}
 
@@ -288,7 +301,7 @@ def get_group(group_id: int, db: Session = Depends(get_db), user: User = Depends
             GroupSummary(
                 id=sg.id, name=sg.name, invite_code=sg.invite_code, leader_id=sg.leader_id,
                 is_member=sg_membership is not None, my_balance=sg_membership.balance if sg_membership else 0,
-                is_public=sg.is_public, category=sg.category,
+                is_public=sg.is_public, category=sg.category, starting_balance=sg.starting_balance,
             )
         )
 
@@ -316,7 +329,8 @@ def get_group(group_id: int, db: Session = Depends(get_db), user: User = Depends
         id=group.id, name=group.name, invite_code=group.invite_code, leader_id=group.leader_id,
         my_balance=my_membership.balance, parent_group_id=group.parent_group_id,
         parent_group_name=parent_group_name, is_public=group.is_public, category=group.category,
-        rules=group.rules, subgroups=subgroups, invitable_members=invitable_members,
+        rules=group.rules, starting_balance=group.starting_balance,
+        subgroups=subgroups, invitable_members=invitable_members,
         members=members, bets=bets, pending_topups=pending_topups,
         latest_event_id=latest_event_id,
     )
@@ -377,7 +391,7 @@ def invite_to_subgroup(
         raise HTTPException(status_code=400, detail="That person is already in this sub-group")
 
     invitee = db.get(User, user_id)
-    db.add(Membership(user_id=user_id, group_id=group_id, balance=0))
+    db.add(Membership(user_id=user_id, group_id=group_id, balance=group.starting_balance or 0))
     log_event(db, group_id, user.id, "member_invited", f"{user.display_name} invited {invitee.display_name} to join")
     db.commit()
     return {"ok": True}

@@ -1,10 +1,10 @@
 from .conftest import register
 
 
-def create_public_group(client, user, name, category="general", rules=None):
+def create_public_group(client, user, name, category="general", rules=None, starting_balance=None):
     res = client.post(
         "/api/groups",
-        json={"name": name, "is_public": True, "category": category, "rules": rules},
+        json={"name": name, "is_public": True, "category": category, "rules": rules, "starting_balance": starting_balance},
         headers=user["auth"],
     )
     assert res.status_code == 200, res.text
@@ -129,3 +129,84 @@ def test_settings_going_private_clears_public_visibility(client, unique):
     res = client.get("/api/groups/discover", headers=alice["auth"])
     names = [g["name"] for g in res.json()]
     assert f"Flip {unique}" not in names
+
+
+def test_starting_balance_applies_to_leader_and_joiners(client, unique):
+    alice = register(client, f"a_{unique}")
+    bob = register(client, f"b_{unique}")
+    group = create_public_group(client, alice, f"Even Start {unique}", starting_balance=10_000)
+    assert group["starting_balance"] == 10_000
+
+    # Leader gets it too, at creation time -- everyone even from the start.
+    res = client.get(f"/api/groups/{group['id']}", headers=alice["auth"])
+    assert res.json()["my_balance"] == 10_000
+
+    res = client.post(f"/api/groups/{group['id']}/join-public", json={}, headers=bob["auth"])
+    assert res.status_code == 200, res.text
+    assert res.json()["my_balance"] == 10_000
+
+
+def test_no_starting_balance_means_zero_as_before(client, unique):
+    alice = register(client, f"a_{unique}")
+    bob = register(client, f"b_{unique}")
+    group = create_public_group(client, alice, f"No Default {unique}")
+    assert group["starting_balance"] is None
+
+    res = client.post(f"/api/groups/{group['id']}/join-public", json={}, headers=bob["auth"])
+    assert res.json()["my_balance"] == 0
+
+
+def test_starting_balance_applies_via_invite_code_too(client, unique):
+    alice = register(client, f"a_{unique}")
+    bob = register(client, f"b_{unique}")
+    group = create_public_group(client, alice, f"Invite Even {unique}", starting_balance=5_000)
+
+    res = client.post("/api/groups/join", json={"invite_code": group["invite_code"]}, headers=bob["auth"])
+    assert res.status_code == 200, res.text
+    assert res.json()["my_balance"] == 5_000
+
+
+def test_starting_balance_ignored_for_private_groups(client, unique):
+    alice = register(client, f"a_{unique}")
+    res = client.post(
+        "/api/groups",
+        json={"name": f"Priv {unique}", "is_public": False, "starting_balance": 9_999},
+        headers=alice["auth"],
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["starting_balance"] is None
+    assert res.json()["my_balance"] == 0
+
+
+def test_negative_starting_balance_rejected(client, unique):
+    alice = register(client, f"a_{unique}")
+    res = client.post(
+        "/api/groups",
+        json={"name": f"Neg {unique}", "is_public": True, "starting_balance": -100},
+        headers=alice["auth"],
+    )
+    assert res.status_code == 422
+
+
+def test_changing_starting_balance_only_affects_future_joiners(client, unique):
+    alice = register(client, f"a_{unique}")
+    bob = register(client, f"b_{unique}")
+    carol = register(client, f"c_{unique}")
+    group = create_public_group(client, alice, f"Change Mid {unique}", starting_balance=1_000)
+
+    res = client.post(f"/api/groups/{group['id']}/join-public", json={}, headers=bob["auth"])
+    assert res.json()["my_balance"] == 1_000
+
+    res = client.patch(
+        f"/api/groups/{group['id']}/settings",
+        json={"is_public": True, "starting_balance": 2_000},
+        headers=alice["auth"],
+    )
+    assert res.status_code == 200
+
+    res = client.post(f"/api/groups/{group['id']}/join-public", json={}, headers=carol["auth"])
+    assert res.json()["my_balance"] == 2_000
+
+    # Bob's already-issued balance doesn't retroactively change.
+    res = client.get(f"/api/groups/{group['id']}", headers=bob["auth"])
+    assert res.json()["my_balance"] == 1_000

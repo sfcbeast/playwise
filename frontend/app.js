@@ -833,6 +833,9 @@ async function viewGroups() {
             ${GROUP_CATEGORIES.map((c) => `<option value="${c.value}">${c.emoji} ${c.label}</option>`).join("")}
           </select>
           <textarea name="rules" placeholder="Rules for new joiners (optional) — e.g. be respectful, no spam, stakes are final" rows="3"></textarea>
+          <label class="field-label">${icon("wallet", 12)} Starting balance for new members (optional)</label>
+          <input type="number" name="starting_balance" min="0" step="1" placeholder="e.g. 10000 — leave blank to start everyone at 0" />
+          <p class="hint" style="margin:0;">If set, everyone (including you) starts even — no manual top-ups needed before the first question.</p>
         </div>
         <button type="submit">Create</button>
       </form>
@@ -858,6 +861,7 @@ async function viewGroups() {
     e.preventDefault();
     const f = new FormData(e.target);
     const is_public = publicToggle.checked;
+    const startingBalanceRaw = f.get("starting_balance");
     try {
       const g = await api("/api/groups", {
         method: "POST",
@@ -866,6 +870,7 @@ async function viewGroups() {
           is_public,
           category: is_public ? f.get("category") : null,
           rules: is_public ? (f.get("rules") || null) : null,
+          starting_balance: is_public && startingBalanceRaw ? Number(startingBalanceRaw) : null,
         },
       });
       toast(`"${g.name}" is up and running`, "success");
@@ -909,6 +914,7 @@ function discoverResultRow(g) {
         </div>
         ${joinBtnOrLink}
       </div>
+      ${g.starting_balance ? `<span class="badge" style="margin-top:8px;">${icon("wallet", 11)} Starts with ${fmtCoins(g.starting_balance)} coins</span>` : ""}
       ${g.has_rules ? `
         <div class="rules-panel" id="rules-panel-${g.id}" style="display:none;">
           <div class="rules-text">${escapeHtml(g.rules)}</div>
@@ -1153,6 +1159,9 @@ async function viewGroupDetail(groupId) {
               ${GROUP_CATEGORIES.map((c) => `<option value="${c.value}" ${group.category === c.value ? "selected" : ""}>${c.emoji} ${c.label}</option>`).join("")}
             </select>
             <textarea name="rules" placeholder="Rules for new joiners (optional)" rows="3">${escapeHtml(group.rules || "")}</textarea>
+            <label class="field-label">${icon("wallet", 12)} Starting balance for new members (optional)</label>
+            <input type="number" name="starting_balance" min="0" step="1" placeholder="e.g. 10000 — leave blank to start at 0" value="${group.starting_balance ?? ""}" />
+            <p class="hint" style="margin:0;">Only affects people who join from now on — nobody's current balance changes.</p>
           </div>
           <button type="submit" class="secondary small" style="align-self:flex-start;">Save</button>
         </form>
@@ -1306,6 +1315,7 @@ async function viewGroupDetail(groupId) {
       e.preventDefault();
       const f = new FormData(e.target);
       const is_public = settingsPublicToggle.checked;
+      const startingBalanceRaw = f.get("starting_balance");
       try {
         await api(`/api/groups/${groupId}/settings`, {
           method: "PATCH",
@@ -1313,6 +1323,7 @@ async function viewGroupDetail(groupId) {
             is_public,
             category: is_public ? f.get("category") : null,
             rules: is_public ? (f.get("rules") || null) : null,
+            starting_balance: is_public && startingBalanceRaw ? Number(startingBalanceRaw) : null,
           },
         });
         toast("Group settings saved", "success");

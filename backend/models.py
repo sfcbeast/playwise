@@ -54,6 +54,11 @@ class Group(Base):
     is_public = Column(Boolean, nullable=False, default=False)
     category = Column(String, nullable=True)
     rules = Column(Text, nullable=True)
+    # Optional -- None means "no default, join with 0" (today's behavior
+    # unchanged). When set, every new membership in this group (leader's
+    # own included, at creation) starts at this balance instead of 0, so
+    # everyone's even before the first question gets asked.
+    starting_balance = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=utcnow)
 
     leader = relationship("User")

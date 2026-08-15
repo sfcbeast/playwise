@@ -35,6 +35,7 @@ class GroupCreateRequest(BaseModel):
     is_public: bool = False
     category: Optional[str] = None
     rules: Optional[str] = Field(default=None, max_length=2000)
+    starting_balance: Optional[int] = Field(default=None, ge=0)
 
 
 class GroupJoinRequest(BaseModel):
@@ -49,6 +50,7 @@ class GroupSettingsUpdateRequest(BaseModel):
     is_public: bool
     category: Optional[str] = None
     rules: Optional[str] = Field(default=None, max_length=2000)
+    starting_balance: Optional[int] = Field(default=None, ge=0)
 
 
 class GroupSummary(BaseModel):
@@ -61,6 +63,7 @@ class GroupSummary(BaseModel):
     parent_group_name: Optional[str] = None
     is_public: bool = False
     category: Optional[str] = None
+    starting_balance: Optional[int] = None
 
 
 class PublicGroupOut(BaseModel):
@@ -71,6 +74,7 @@ class PublicGroupOut(BaseModel):
     member_count: int
     has_rules: bool
     rules: Optional[str]
+    starting_balance: Optional[int]
     is_member: bool
     created_at: datetime.datetime
 
@@ -107,6 +111,7 @@ class GroupDetail(BaseModel):
     is_public: bool = False
     category: Optional[str] = None
     rules: Optional[str] = None
+    starting_balance: Optional[int] = None
     subgroups: List[GroupSummary]
     invitable_members: List[MemberBalance]
     members: List[MemberBalance]
