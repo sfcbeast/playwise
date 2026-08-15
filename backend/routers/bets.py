@@ -7,6 +7,7 @@ from backend.auth import get_current_user
 from backend.db import get_db
 from backend.helpers import get_group_or_404, get_membership_or_403, log_event, require_creator_or_leader
 from backend.models import Bet, BetHiddenFrom, Membership, Stake, Transaction, User
+from backend.routers.push import notify_user
 from backend.schemas import (
     BetCreateRequest,
     BetDetail,
@@ -344,4 +345,11 @@ def resolve_bet(
     log_event(db, bet.group_id, user.id, "bet_resolved", message, ref_bet_id=bet.id)
 
     db.commit()
+
+    for uid, amount in winner_amounts.items():
+        notify_user(
+            db, uid, "You won! 🎉", f'+{amount} coins on "{bet.question}" in {group.name}',
+            url=f"/#/bets/{bet.id}",
+        )
+
     return get_bet(bet_id, db, user)

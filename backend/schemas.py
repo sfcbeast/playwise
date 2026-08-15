@@ -289,4 +289,23 @@ class ReportResolveRequest(BaseModel):
     action: str  # dismiss | delete_content | unpublish_group
 
 
+class PushSubscriptionKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+
+class PushSubscribeRequest(BaseModel):
+    endpoint: str
+    keys: PushSubscriptionKeys
+
+
+class PushUnsubscribeRequest(BaseModel):
+    endpoint: str
+
+
+class VapidKeyOut(BaseModel):
+    public_key: str
+    enabled: bool
+
+
 GroupDetail.model_rebuild()

@@ -7,6 +7,7 @@ from backend.auth import get_current_user
 from backend.db import get_db
 from backend.helpers import get_group_or_404, get_membership_or_403, log_event, require_leader
 from backend.models import Membership, TopUpRequest, Transaction, User
+from backend.routers.push import notify_user
 from backend.schemas import TopUpCreateRequest, TopUpRequestOut, TransactionOut
 
 router = APIRouter(prefix="/api/groups/{group_id}", tags=["wallet"])
@@ -16,7 +17,7 @@ router = APIRouter(prefix="/api/groups/{group_id}", tags=["wallet"])
 def request_topup(
     group_id: int, body: TopUpCreateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
-    get_group_or_404(db, group_id)
+    group = get_group_or_404(db, group_id)
     get_membership_or_403(db, group_id, user.id)
 
     req = TopUpRequest(group_id=group_id, user_id=user.id, amount=body.amount)
@@ -28,6 +29,11 @@ def request_topup(
     )
     db.commit()
     db.refresh(req)
+    if group.leader_id != user.id:
+        notify_user(
+            db, group.leader_id, "Top-up request", f"{user.display_name} wants {body.amount} coins in {group.name}",
+            url=f"/#/groups/{group_id}",
+        )
     return TopUpRequestOut(
         id=req.id, group_id=req.group_id, user_id=req.user_id, display_name=user.display_name,
         amount=req.amount, status=req.status, created_at=req.created_at,
@@ -85,6 +91,11 @@ def approve_topup(
     )
     db.commit()
     db.refresh(req)
+    if req.user_id != user.id:
+        notify_user(
+            db, req.user_id, "Top-up approved", f"+{req.amount} coins in {group.name}",
+            url=f"/#/groups/{group_id}",
+        )
     return TopUpRequestOut(
         id=req.id, group_id=req.group_id, user_id=req.user_id, display_name=requester.display_name,
         amount=req.amount, status=req.status, created_at=req.created_at,

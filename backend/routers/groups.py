@@ -8,6 +8,7 @@ from backend.auth import get_current_user
 from backend.db import get_db
 from backend.helpers import get_group_or_404, get_membership_or_403, log_event, require_leader
 from backend.models import Bet, BetHiddenFrom, Group, GroupEvent, Membership, Stake, TopUpRequest, Transaction, User
+from backend.routers.push import notify_user
 from backend.schemas import (
     GROUP_CATEGORIES,
     BetSummary,
@@ -134,6 +135,11 @@ def join_group(body: GroupJoinRequest, db: Session = Depends(get_db), user: User
         existing = Membership(user_id=user.id, group_id=group.id, balance=group.starting_balance or 0)
         db.add(existing)
         db.commit()
+        if group.leader_id != user.id:
+            notify_user(
+                db, group.leader_id, "New member", f'{user.display_name} joined "{group.name}"',
+                url=f"/#/groups/{group.id}",
+            )
 
     return GroupSummary(
         id=group.id,
@@ -217,6 +223,11 @@ def join_public_group(
         db.add(existing)
         log_event(db, group_id, user.id, "member_joined", f"{user.display_name} joined from Discover")
         db.commit()
+        if group.leader_id != user.id:
+            notify_user(
+                db, group.leader_id, "New member", f'{user.display_name} joined "{group.name}" from Discover',
+                url=f"/#/groups/{group.id}",
+            )
 
     return GroupSummary(
         id=group.id, name=group.name, invite_code=group.invite_code, leader_id=group.leader_id,

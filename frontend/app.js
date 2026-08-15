@@ -625,6 +625,81 @@ function adSlot(slotId, label) {
   `;
 }
 
+// ---- push notifications ---------------------------------------------
+
+const PUSH_SUPPORTED = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+
+// A VAPID public key arrives as URL-safe base64 text; PushManager.subscribe
+// wants it as a raw byte array. Standard conversion, same as it appears in
+// every Web Push writeup.
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+}
+
+function arrayBufferToBase64Url(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  bytes.forEach((b) => { binary += String.fromCharCode(b); });
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function refreshPushButtonState(btn) {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    btn.classList.toggle("active", !!sub);
+    btn.title = sub ? "Notifications on — click to turn off" : "Turn on notifications";
+  } catch {
+    // Service worker not ready yet or some other transient issue -- leave
+    // the button in its default state rather than blocking the topbar render.
+  }
+}
+
+async function togglePushSubscription(btn) {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) {
+      await existing.unsubscribe();
+      await api("/api/push/unsubscribe", { method: "POST", body: { endpoint: existing.endpoint } });
+      toast("Notifications turned off", "success");
+      refreshPushButtonState(btn);
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      toast("Notifications need permission — check your browser settings", "error");
+      return;
+    }
+    const { public_key, enabled } = await api("/api/push/vapid-public-key");
+    if (!enabled) {
+      toast("Notifications aren't set up on this server yet", "error");
+      return;
+    }
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(public_key),
+    });
+    await api("/api/push/subscribe", {
+      method: "POST",
+      body: {
+        endpoint: sub.endpoint,
+        keys: {
+          p256dh: arrayBufferToBase64Url(sub.getKey("p256dh")),
+          auth: arrayBufferToBase64Url(sub.getKey("auth")),
+        },
+      },
+    });
+    toast("Notifications enabled", "success");
+    refreshPushButtonState(btn);
+  } catch (err) {
+    toast(`Couldn't enable notifications: ${err.message}`, "error");
+  }
+}
+
 function renderUserBox() {
   const box = document.getElementById("user-box");
   const user = getUser();
@@ -635,9 +710,15 @@ function renderUserBox() {
     ${user.is_admin ? `<a class="ghost nav-link" href="#/admin/reports" title="Moderation queue">${icon("flag", 17)}<span class="nav-link-text">Reports</span></a>` : ""}
     <span class="name">${escapeHtml(user.display_name)}</span>
     ${avatarHtml(user.display_name, "sm")}
+    ${PUSH_SUPPORTED ? `<button class="ghost icon-btn" id="push-toggle-btn" title="Notifications">${icon("bell", 17)}</button>` : ""}
     <button class="ghost icon-btn" id="recovery-code-btn" title="Get account recovery code">${icon("shield", 17)}</button>
     <button class="ghost icon-btn" id="logout-btn" title="Log out">${icon("logout", 17)}</button>
   `;
+  if (PUSH_SUPPORTED) {
+    const pushBtn = document.getElementById("push-toggle-btn");
+    refreshPushButtonState(pushBtn);
+    pushBtn.onclick = () => togglePushSubscription(pushBtn);
+  }
   document.getElementById("recovery-code-btn").onclick = async () => {
     if (!confirm("Generate a new account recovery code? Any code you saved before this will stop working.")) return;
     try {

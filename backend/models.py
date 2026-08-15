@@ -233,3 +233,18 @@ class Report(Base):
     created_at = Column(DateTime, default=utcnow)
     resolved_at = Column(DateTime, nullable=True)
     resolved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+
+class PushSubscription(Base):
+    """One row per browser/device a user has enabled notifications on --
+    someone using Playwise on both their phone and laptop gets pushed to
+    both. `endpoint` is unique because the browser itself dedupes: calling
+    subscribe() again from the same browser returns the same endpoint."""
+    __tablename__ = "push_subscriptions"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    endpoint = Column(String, unique=True, nullable=False)
+    p256dh_key = Column(String, nullable=False)
+    auth_key = Column(String, nullable=False)
+    created_at = Column(DateTime, default=utcnow)
