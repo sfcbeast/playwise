@@ -289,6 +289,34 @@ class ReportResolveRequest(BaseModel):
     action: str  # dismiss | delete_content | unpublish_group
 
 
+class AdminStatsOut(BaseModel):
+    total_users: int
+    new_users_7d: int
+    total_groups: int
+    public_groups: int
+    total_chat_messages: int
+    open_reports: int
+
+
+class AdminUserOut(BaseModel):
+    id: int
+    username: str
+    display_name: str
+    is_admin: bool
+    created_at: datetime.datetime
+    group_count: int
+
+
+class AdminGroupOut(BaseModel):
+    id: int
+    name: str
+    leader_display_name: str
+    member_count: int
+    is_public: bool
+    category: Optional[str] = None
+    created_at: datetime.datetime
+
+
 class PushSubscriptionKeys(BaseModel):
     p256dh: str
     auth: str

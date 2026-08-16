@@ -8,6 +8,7 @@ from backend.db import get_db
 from backend.helpers import require_admin
 from backend.models import ChatMessage, Group, Report, User
 from backend.rate_limit import check_rate_limit
+from backend.routers.push import notify_user
 from backend.schemas import REPORT_TARGET_TYPES, ReportCreateRequest, ReportOut, ReportResolveRequest
 
 router = APIRouter(tags=["reports"])
@@ -46,6 +47,10 @@ def create_report(
 
     db.add(Report(reporter_id=user.id, target_type=body.target_type, target_id=body.target_id, reason=body.reason))
     db.commit()
+
+    for admin in db.query(User).filter(User.is_admin.is_(True)).all():
+        notify_user(db, admin.id, "New report to review", f"{user.display_name} flagged something", "/#/admin")
+
     return {"ok": True}
 
 

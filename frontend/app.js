@@ -32,6 +32,7 @@ const ICON_PATHS = {
   globe: '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z"/>',
   shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/>',
   powerOff: '<path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>',
+  layout: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>',
 };
 
 function icon(name, size = 18) {
@@ -451,6 +452,10 @@ function escapeHtml(str) {
 
 function fmtCoins(n) { return n.toLocaleString(); }
 
+function fmtDate(iso) {
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
 // ---- personality: greetings & varied copy ---------------------------
 // Small touches so the app reads like someone wrote it, not like it
 // generated its own strings -- a time-aware greeting and a few pools of
@@ -715,7 +720,7 @@ function renderUserBox() {
   box.innerHTML = `
     <a class="ghost nav-link" href="#/discover" title="Discover public groups">${icon("globe", 17)}<span class="nav-link-text">Discover</span></a>
     <a class="ghost nav-link" href="#/chat" title="Global chat">${icon("chat", 17)}<span class="nav-link-text">Chat</span></a>
-    ${user.is_admin ? `<a class="ghost nav-link" href="#/admin/reports" title="Moderation queue">${icon("flag", 17)}<span class="nav-link-text">Reports</span></a>` : ""}
+    ${user.is_admin ? `<a class="ghost nav-link" href="#/admin" title="Admin dashboard">${icon("layout", 17)}<span class="nav-link-text">Admin</span></a>` : ""}
     <span class="name">${escapeHtml(user.display_name)}</span>
     ${avatarHtml(user.display_name, "sm")}
     ${PUSH_SUPPORTED ? `<button class="ghost icon-btn" id="push-toggle-btn" title="Notifications">${icon("bell", 17)}</button>` : ""}
@@ -805,6 +810,7 @@ async function render() {
     if (joinLinkMatch) return await viewJoinByCode(joinLinkMatch[1]);
     if (hash === "#/chat") return await viewGlobalChat();
     if (hash === "#/discover") return await viewDiscover();
+    if (hash === "#/admin") return await viewAdminDashboard();
     if (hash === "#/admin/reports") return await viewAdminReports();
     if (groupChatMatch) return await viewGroupChat(Number(groupChatMatch[1]));
     if (groupMatch) return await viewGroupDetail(Number(groupMatch[1]));
@@ -2400,6 +2406,84 @@ async function reportContent(targetType, targetId) {
   }
 }
 
+async function viewAdminDashboard() {
+  setTitle("Admin dashboard");
+  setApp(skeletonView(3));
+  const [stats, users, groups] = await Promise.all([
+    api("/api/admin/stats"),
+    api("/api/admin/users?limit=20"),
+    api("/api/admin/groups?limit=20"),
+  ]);
+
+  const statCard = (label, value, href) => `
+    <a class="stat-card${href ? " clickable" : ""}" ${href ? `href="${href}"` : ""}>
+      <div class="stat-value">${fmtCoins(value)}</div>
+      <div class="stat-label">${escapeHtml(label)}</div>
+    </a>
+  `;
+
+  const userRow = (u) => `
+    <div class="list-item">
+      <div class="identity">
+        ${avatarHtml(u.display_name)}
+        <div class="meta">
+          <div class="primary">${escapeHtml(u.display_name)} ${u.is_admin ? `<span class="badge">Admin</span>` : ""}</div>
+          <div class="secondary">@${escapeHtml(u.username)} · ${u.group_count} group${u.group_count === 1 ? "" : "s"} · joined ${fmtDate(u.created_at)}</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const groupRow = (g) => `
+    <a class="list-item clickable" href="#/groups/${g.id}">
+      <div class="identity">
+        ${avatarHtml(g.name)}
+        <div class="meta">
+          <div class="primary">${escapeHtml(g.name)}</div>
+          <div class="secondary">led by ${escapeHtml(g.leader_display_name)} · ${g.member_count} member${g.member_count === 1 ? "" : "s"} · ${fmtDate(g.created_at)}</div>
+        </div>
+      </div>
+      ${g.is_public ? `<span class="badge">${escapeHtml(categoryLabel(g.category) || "🌐 Public")}</span>` : `<span class="secondary" style="font-size:0.78rem;">private</span>`}
+    </a>
+  `;
+
+  setApp(`
+    <a href="#/groups" class="row" style="gap:6px;color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;">${icon("arrowLeft", 15)} All groups</a>
+    <div class="card">
+      <h1 class="row" style="gap:8px;">${icon("layout", 20)} Admin dashboard</h1>
+      <div class="squiggle"></div>
+      <p class="muted">A read on how the app is actually being used.</p>
+    </div>
+
+    <div class="stat-grid">
+      ${statCard("Total users", stats.total_users)}
+      ${statCard("New this week", stats.new_users_7d)}
+      ${statCard("Total groups", stats.total_groups)}
+      ${statCard("Public groups", stats.public_groups)}
+      ${statCard("Chat messages", stats.total_chat_messages)}
+      ${statCard("Open reports", stats.open_reports, "#/admin/reports")}
+    </div>
+
+    <div class="card">
+      <div class="row between">
+        <h3 class="card-title">${icon("flag", 16)} Moderation queue</h3>
+        <a href="#/admin/reports" class="secondary small">Review reports${stats.open_reports ? ` (${stats.open_reports})` : ""}</a>
+      </div>
+      <p class="muted" style="margin:0;">${stats.open_reports ? `${stats.open_reports} report${stats.open_reports === 1 ? "" : "s"} waiting on you.` : "Nothing waiting on you right now."}</p>
+    </div>
+
+    <div class="card">
+      <h3 class="card-title">${icon("users", 16)} Newest users</h3>
+      ${users.length ? users.map(userRow).join("") : `<p class="muted">No users yet.</p>`}
+    </div>
+
+    <div class="card">
+      <h3 class="card-title">${icon("bolt", 16)} Newest groups</h3>
+      ${groups.length ? groups.map(groupRow).join("") : `<p class="muted">No groups yet.</p>`}
+    </div>
+  `);
+}
+
 async function viewAdminReports() {
   setTitle("Moderation queue");
   setApp(skeletonView(2));
@@ -2426,7 +2510,7 @@ async function viewAdminReports() {
   }
 
   setApp(`
-    <a href="#/groups" class="row" style="gap:6px;color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;">${icon("arrowLeft", 15)} All groups</a>
+    <a href="#/admin" class="row" style="gap:6px;color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;">${icon("arrowLeft", 15)} Admin dashboard</a>
     <div class="card">
       <h1 class="row" style="gap:8px;">${icon("flag", 20)} Moderation queue</h1>
       <div class="squiggle"></div>
