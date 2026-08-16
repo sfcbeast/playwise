@@ -1030,13 +1030,24 @@ async function viewGroups() {
   const groups = await api("/api/groups");
   const user = getUser();
 
+  // Group creation now blocks a user from naming a new group the same as
+  // one they're already in, but a name collision can still happen via
+  // invite-code joins (or groups created before that check existed) -- when
+  // it does, tag each colliding entry with its invite code so they're not
+  // visually identical in this list.
+  const nameCounts = {};
+  groups.forEach((g) => {
+    const key = g.name.trim().toLowerCase();
+    nameCounts[key] = (nameCounts[key] || 0) + 1;
+  });
+
   const groupsHtml = groups.length
     ? groups.map((g) => `
         <a class="list-item clickable" href="#/groups/${g.id}">
           <div class="identity">
             ${avatarHtml(g.name)}
             <div class="meta">
-              <div class="primary">${escapeHtml(g.name)}</div>
+              <div class="primary">${escapeHtml(g.name)}${nameCounts[g.name.trim().toLowerCase()] > 1 ? ` <span class="muted" style="font-weight:400;font-size:0.8em;">#${escapeHtml(g.invite_code)}</span>` : ""}</div>
               ${g.parent_group_name ? `<div class="secondary">↳ inside ${escapeHtml(g.parent_group_name)}</div>` : ""}
             </div>
           </div>

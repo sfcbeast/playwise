@@ -1,6 +1,7 @@
 import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -19,6 +20,18 @@ def register(body: RegisterRequest, request: Request, db: Session = Depends(get_
     if not body.accepted_terms:
         raise HTTPException(
             status_code=400, detail="You must acknowledge that Playwise coins are play money before creating an account"
+        )
+    # username is already DB-unique (it's the login handle), but display_name
+    # is what actually shows up everywhere -- chat, group member lists,
+    # leaderboards -- so two accounts sharing one is the same "which one is
+    # which?" confusion as two identically-named groups.
+    display_name_clash = (
+        db.query(User).filter(func.lower(func.trim(User.display_name)) == body.display_name.strip().lower()).first()
+    )
+    if display_name_clash is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=f'"{body.display_name.strip()}" is already taken -- try a variation so people can tell you apart.',
         )
     recovery_code = gen_recovery_code()
     user = User(

@@ -91,6 +91,23 @@ def create_group(body: GroupCreateRequest, db: Session = Depends(get_db), user: 
         get_group_or_404(db, body.parent_group_id)
         get_membership_or_403(db, body.parent_group_id, user.id)
 
+    # Two groups with the identical name in one person's own "Your groups"
+    # list are indistinguishable at a glance (usually a double-submit, but
+    # even intentional it's confusing) -- scoped to this user's own
+    # memberships, not global, since unrelated friend circles legitimately
+    # share common names like "Family" or "Roomies".
+    name_clash = (
+        db.query(Group)
+        .join(Membership, Membership.group_id == Group.id)
+        .filter(Membership.user_id == user.id, func.lower(func.trim(Group.name)) == body.name.strip().lower())
+        .first()
+    )
+    if name_clash is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=f'You already have a group named "{body.name.strip()}" -- pick a different name to keep them apart.',
+        )
+
     category = _validate_category(body.category)
     starting_balance = body.starting_balance if body.is_public else None
 
