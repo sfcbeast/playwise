@@ -1,10 +1,11 @@
 import logging
 import os
+import secrets
 import traceback
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -19,32 +20,43 @@ sync_schema()
 app = FastAPI(title="Playwise")
 
 
-# Every page is served from the same origin as the API (no separate static
-# host, no CDN) and the frontend has no inline <script> tags left (the one
-# that existed got moved into app.js specifically so this could be strict),
-# so script-src can be 'self' only -- inline styles are still used
-# extensively via style="..." attributes throughout the generated HTML, so
-# style-src needs 'unsafe-inline'. frame-ancestors 'none' plus
-# X-Frame-Options both block this app from being framed elsewhere
-# (clickjacking); the rest are standard baseline hardening.
-_CSP = (
-    "default-src 'self'; "
-    "script-src 'self'; "
-    "style-src 'self' 'unsafe-inline'; "
-    "img-src 'self' data: blob:; "
-    "font-src 'self'; "
-    "connect-src 'self'; "
-    "manifest-src 'self'; "
-    "object-src 'none'; "
-    "base-uri 'self'; "
-    "frame-ancestors 'none'"
-)
+# AdSense's ad-serving scripts load from a rotating set of Google/ad-tech
+# domains that changes over time, so a domain allowlist for script-src would
+# be both fragile and (per Google's own CSP guidance) explicitly discouraged.
+# Instead: a fresh random nonce per request, applied to every <script> tag we
+# render (see the "/" route below) plus 'strict-dynamic', which extends trust
+# to whatever a nonce'd script loads in turn -- that's what lets AdSense's own
+# script pull in its dependents without us maintaining a domain list.
+# 'unsafe-inline'/'unsafe-eval'/https:/http: are same-line fallbacks for
+# browsers too old to understand 'strict-dynamic' or nonces; any modern
+# browser that honors 'strict-dynamic' ignores those fallback tokens entirely,
+# so this isn't actually a regression for anyone running a current browser.
+# Ad creatives can be served from effectively any ad-exchange/advertiser
+# domain, which is why img-src/frame-src/connect-src/style-src are opened to
+# https: -- that's inherent to how programmatic ad serving works, not
+# something a domain list could narrow down either.
+def _build_csp(nonce: str) -> str:
+    return (
+        "default-src 'self'; "
+        f"script-src 'nonce-{nonce}' 'unsafe-inline' 'unsafe-eval' 'strict-dynamic' https: http:; "
+        "style-src 'self' 'unsafe-inline' https:; "
+        "img-src 'self' data: blob: https:; "
+        "font-src 'self' https:; "
+        "connect-src 'self' https:; "
+        "frame-src https:; "
+        "manifest-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'none'; "
+        "frame-ancestors 'none'"
+    )
 
 
 @app.middleware("http")
 async def security_headers_middleware(request: Request, call_next):
+    nonce = secrets.token_urlsafe(16)
+    request.state.csp_nonce = nonce
     response = await call_next(request)
-    response.headers["Content-Security-Policy"] = _CSP
+    response.headers["Content-Security-Policy"] = _build_csp(nonce)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
@@ -112,4 +124,29 @@ class NoCacheStaticFiles(StaticFiles):
 
 
 frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
+
+with open(os.path.join(frontend_dir, "index.html"), encoding="utf-8") as f:
+    _INDEX_HTML_TEMPLATE = f.read()
+
+
+def _serve_index(request: Request) -> HTMLResponse:
+    # This is the one HTML page in the app, so it's the only place a nonce
+    # ever needs to land -- every <script> tag in index.html carries the
+    # __CSP_NONCE__ placeholder, replaced here with the same random value the
+    # middleware above put in this request's CSP header.
+    nonce = request.state.csp_nonce
+    html = _INDEX_HTML_TEMPLATE.replace("__CSP_NONCE__", nonce)
+    return HTMLResponse(html)
+
+
+@app.get("/", include_in_schema=False)
+async def index(request: Request):
+    return _serve_index(request)
+
+
+@app.get("/index.html", include_in_schema=False)
+async def index_html(request: Request):
+    return _serve_index(request)
+
+
 app.mount("/", NoCacheStaticFiles(directory=frontend_dir, html=True), name="frontend")

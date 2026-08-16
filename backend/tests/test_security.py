@@ -10,8 +10,26 @@ def test_security_headers_present_on_every_response(client):
     csp = res.headers["content-security-policy"]
     assert "default-src 'self'" in csp
     assert "frame-ancestors 'none'" in csp
-    assert "script-src 'self'" in csp
-    assert "unsafe-inline" not in csp.split("script-src")[1].split(";")[0]
+    assert "object-src 'none'" in csp
+    script_src = csp.split("script-src")[1].split(";")[0]
+    assert "'strict-dynamic'" in script_src
+    assert "'nonce-" in script_src
+
+
+def test_csp_nonce_is_unique_per_request_and_matches_index_html(client):
+    res1 = client.get("/")
+    res2 = client.get("/")
+
+    def nonce_of(res):
+        csp = res.headers["content-security-policy"]
+        return csp.split("nonce-")[1].split("'")[0]
+
+    nonce1, nonce2 = nonce_of(res1), nonce_of(res2)
+    assert nonce1 != nonce2
+    # Every <script> tag in the served HTML must carry that same request's
+    # nonce -- otherwise the browser blocks it under this CSP.
+    assert res1.text.count(f'nonce="{nonce1}"') >= 2
+    assert "__CSP_NONCE__" not in res1.text
 
 
 def test_logout_everywhere_invalidates_the_calling_token(client, unique):
