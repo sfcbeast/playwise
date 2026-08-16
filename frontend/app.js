@@ -1035,8 +1035,13 @@ function viewRegister() {
 async function viewGroups() {
   setTitle();
   setApp(skeletonView(2));
-  const groups = await api("/api/groups");
   const user = getUser();
+  // The god account has no real memberships by design (see the superadmin
+  // bypass in get_membership_or_403) -- "Your groups" would always be empty
+  // for it otherwise, even though it can open any of them. Show every group
+  // instead, private included, sourced from the same endpoint the admin
+  // dashboard uses.
+  const groups = await api(user.is_superadmin ? "/api/admin/groups?limit=200" : "/api/groups");
 
   // Group creation now blocks a user from naming a new group the same as
   // one they're already in, but a name collision can still happen via
@@ -1050,7 +1055,20 @@ async function viewGroups() {
   });
 
   const groupsHtml = groups.length
-    ? groups.map((g) => `
+    ? groups.map((g) => user.is_superadmin ? `
+        <a class="list-item clickable" href="#/groups/${g.id}">
+          <div class="identity">
+            ${avatarHtml(g.name)}
+            <div class="meta">
+              <div class="primary">${escapeHtml(g.name)}</div>
+              <div class="secondary">led by ${escapeHtml(g.leader_display_name)} · ${g.member_count} member${g.member_count === 1 ? "" : "s"}</div>
+            </div>
+          </div>
+          <span class="row" style="gap:8px;">
+            ${g.is_public ? `<span class="badge">${escapeHtml(categoryLabel(g.category) || "🌐 Public")}</span>` : `<span class="secondary" style="font-size:0.78rem;">private</span>`}
+          </span>
+        </a>
+      ` : `
         <a class="list-item clickable" href="#/groups/${g.id}">
           <div class="identity">
             ${avatarHtml(g.name)}
@@ -1070,14 +1088,14 @@ async function viewGroups() {
   setApp(`
     <div class="card">
       <div class="greeting-eyebrow">${timeGreeting()}, ${escapeHtml(user.display_name)} 👋</div>
-      <h1 class="row" style="gap:8px;">${icon("bolt", 20)} Your groups</h1>
+      <h1 class="row" style="gap:8px;">${icon("bolt", 20)} ${user.is_superadmin ? "All groups" : "Your groups"}</h1>
       <div class="squiggle"></div>
-      <p class="muted greeting-subtitle">${pick(GROUPS_SUBTITLES)}</p>
+      <p class="muted greeting-subtitle">${user.is_superadmin ? "Every group on Playwise, private included — you have full access without joining." : pick(GROUPS_SUBTITLES)}</p>
       <div class="section-gap"></div>
       ${groupsHtml}
     </div>
 
-    ${!groups.length ? `
+    ${!groups.length && !user.is_superadmin ? `
       <div class="card onboarding-card">
         <h3 class="card-title">${icon("bolt", 16)} How Playwise works</h3>
         <div class="onboarding-step">
