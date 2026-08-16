@@ -35,7 +35,7 @@ def register(body: RegisterRequest, request: Request, db: Session = Depends(get_
         db.rollback()
         raise HTTPException(status_code=400, detail="Username already taken")
     db.refresh(user)
-    token = create_access_token(user.id)
+    token = create_access_token(user.id, user.token_version)
     return TokenResponse(
         access_token=token, user_id=user.id, username=user.username, display_name=user.display_name,
         is_admin=user.is_admin, recovery_code=recovery_code,
@@ -48,7 +48,7 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == body.username).first()
     if user is None or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid username or password")
-    token = create_access_token(user.id)
+    token = create_access_token(user.id, user.token_version)
     return TokenResponse(
         access_token=token, user_id=user.id, username=user.username, display_name=user.display_name,
         is_admin=user.is_admin,
@@ -75,11 +75,15 @@ def reset_password(body: ResetPasswordRequest, request: Request, db: Session = D
     new_recovery_code = gen_recovery_code()
     user.password_hash = hash_password(body.new_password)
     user.recovery_code_hash = hash_password(new_recovery_code)
+    # Resetting your password is exactly the moment any previously-issued
+    # token (including a possibly-leaked one that's the reason you're
+    # resetting in the first place) should stop working.
+    user.token_version += 1
     db.commit()
-    token = create_access_token(user.id)
+    token = create_access_token(user.id, user.token_version)
     return TokenResponse(
         access_token=token, user_id=user.id, username=user.username, display_name=user.display_name,
-        recovery_code=new_recovery_code,
+        is_admin=user.is_admin, recovery_code=new_recovery_code,
     )
 
 
@@ -92,3 +96,14 @@ def regenerate_recovery_code(db: Session = Depends(get_db), user: User = Depends
     user.recovery_code_hash = hash_password(code)
     db.commit()
     return RecoveryCodeOut(recovery_code=code)
+
+
+@router.post("/api/account/logout-everywhere", response_model=dict)
+def logout_everywhere(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Invalidates every token issued for this account, including the one
+    used to call this endpoint -- the caller needs to log back in
+    immediately afterward, same as every other device/tab that was signed
+    in. For "I think someone else has access to my account," not routine use."""
+    user.token_version += 1
+    db.commit()
+    return {"ok": True}

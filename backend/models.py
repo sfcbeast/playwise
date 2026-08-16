@@ -52,6 +52,12 @@ class User(Base):
     # is the only self-service path back into an account, since there's no
     # email service wired up to send reset links through.
     recovery_code_hash = Column(String, nullable=True)
+    # Embedded in every JWT issued for this user; a token only validates if
+    # its embedded version matches the current one here. There's otherwise
+    # no way to invalidate a token before its natural expiry (up to 30 days)
+    # -- bumping this is what "log out everywhere" and "password was just
+    # reset" both actually do under the hood.
+    token_version = Column(Integer, nullable=False, default=1)
     # No self-service path to this -- nobody starts as admin, including
     # whoever registers first. Granted manually via direct DB access, same
     # spirit as everything else in this app that touches trust boundaries.

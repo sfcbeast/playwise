@@ -18,6 +18,44 @@ sync_schema()
 
 app = FastAPI(title="Playwise")
 
+
+# Every page is served from the same origin as the API (no separate static
+# host, no CDN) and the frontend has no inline <script> tags left (the one
+# that existed got moved into app.js specifically so this could be strict),
+# so script-src can be 'self' only -- inline styles are still used
+# extensively via style="..." attributes throughout the generated HTML, so
+# style-src needs 'unsafe-inline'. frame-ancestors 'none' plus
+# X-Frame-Options both block this app from being framed elsewhere
+# (clickjacking); the rest are standard baseline hardening.
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; "
+    "font-src 'self'; "
+    "connect-src 'self'; "
+    "manifest-src 'self'; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "frame-ancestors 'none'"
+)
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = _CSP
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    # Render terminates TLS in front of this app and the production domain
+    # is HTTPS-only, so it's safe to always tell browsers to remember that --
+    # this header is simply ignored over a plain HTTP connection (e.g. local
+    # dev), so it can't break anything there.
+    response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+    return response
+
+
 app.include_router(auth_router.router)
 app.include_router(groups.router)
 app.include_router(wallet.router)

@@ -1,3 +1,10 @@
+// Moved here from an inline <script> in index.html so the CSP's script-src
+// can stay 'self' only (no 'unsafe-inline') -- an inline script tag would
+// otherwise force weakening that policy just for this one registration call.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js"));
+}
+
 // ---- icons ---------------------------------------------------------------
 
 const ICON_PATHS = {
@@ -24,6 +31,7 @@ const ICON_PATHS = {
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>',
   globe: '<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z"/>',
   shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/>',
+  powerOff: '<path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/>',
 };
 
 function icon(name, size = 18) {
@@ -712,6 +720,7 @@ function renderUserBox() {
     ${avatarHtml(user.display_name, "sm")}
     ${PUSH_SUPPORTED ? `<button class="ghost icon-btn" id="push-toggle-btn" title="Notifications">${icon("bell", 17)}</button>` : ""}
     <button class="ghost icon-btn" id="recovery-code-btn" title="Get account recovery code">${icon("shield", 17)}</button>
+    <button class="ghost icon-btn" id="logout-everywhere-btn" title="Log out of all devices">${icon("powerOff", 17)}</button>
     <button class="ghost icon-btn" id="logout-btn" title="Log out">${icon("logout", 17)}</button>
   `;
   if (PUSH_SUPPORTED) {
@@ -725,6 +734,17 @@ function renderUserBox() {
       const { recovery_code } = await api("/api/account/recovery-code", { method: "POST" });
       const returnHash = location.hash || "#/groups";
       renderRecoveryCodeScreen(recovery_code, () => { location.hash = returnHash; render(); });
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  };
+  document.getElementById("logout-everywhere-btn").onclick = async () => {
+    if (!confirm("Log out of every device signed into this account, including this one? You'll need to log back in here too.")) return;
+    try {
+      await api("/api/account/logout-everywhere", { method: "POST" });
+      clearAuth();
+      location.hash = "#/login";
+      toast("Logged out everywhere", "success");
     } catch (err) {
       toast(err.message, "error");
     }
