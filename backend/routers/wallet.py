@@ -18,7 +18,9 @@ def request_topup(
     group_id: int, body: TopUpCreateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
     group = get_group_or_404(db, group_id)
-    get_membership_or_403(db, group_id, user.id)
+    # No superadmin bypass -- requesting a top-up for yourself only makes
+    # sense with a real membership to credit.
+    get_membership_or_403(db, group_id, user.id, allow_superadmin=False)
 
     req = TopUpRequest(group_id=group_id, user_id=user.id, amount=body.amount)
     db.add(req)
@@ -64,7 +66,7 @@ def approve_topup(
     group_id: int, request_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
     group = get_group_or_404(db, group_id)
-    require_leader(group, user.id)
+    require_leader(group, user)
 
     req = db.get(TopUpRequest, request_id, with_for_update=True)
     if req is None or req.group_id != group_id:
@@ -107,7 +109,7 @@ def reject_topup(
     group_id: int, request_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
     group = get_group_or_404(db, group_id)
-    require_leader(group, user.id)
+    require_leader(group, user)
 
     req = db.get(TopUpRequest, request_id, with_for_update=True)
     if req is None or req.group_id != group_id:

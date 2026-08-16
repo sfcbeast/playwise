@@ -597,6 +597,11 @@ button.chip.active { background: color-mix(in srgb, var(--accent) 16%, transpare
 .badge.pending { background: var(--warning-bg); color: var(--warning); border-color: transparent; }
 .badge.countdown { background: var(--warning-bg); color: var(--warning); border-color: transparent; font-variant-numeric: tabular-nums; }
 .badge.countdown.closed { background: var(--bg-soft); color: var(--text-tertiary); }
+.badge.god-badge {
+  background: linear-gradient(135deg, #f6c453, #a855f7);
+  color: #1a1a1a;
+  border-color: transparent;
+}
 
 @keyframes badge-glow {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 35%, transparent); }

@@ -23,6 +23,7 @@ class TokenResponse(BaseModel):
     username: str
     display_name: str
     is_admin: bool = False
+    is_superadmin: bool = False
     recovery_code: Optional[str] = None  # only ever populated once, at (re)generation
 
 
@@ -118,6 +119,7 @@ class GroupDetail(BaseModel):
     invite_code: str
     leader_id: int
     my_balance: int
+    is_member: bool = True
     parent_group_id: Optional[int]
     parent_group_name: Optional[str]
     is_public: bool = False

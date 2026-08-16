@@ -182,7 +182,7 @@ def delete_bet(bet_id: int, db: Session = Depends(get_db), user: User = Depends(
     group = get_group_or_404(db, bet.group_id)
     get_membership_or_403(db, bet.group_id, user.id)
     _ensure_visible(db, bet_id, user.id)
-    require_creator_or_leader(bet, group, user.id)
+    require_creator_or_leader(bet, group, user)
 
     if bet.status != "open":
         raise HTTPException(status_code=400, detail="Can't delete a bet that's already resolved")
@@ -216,7 +216,9 @@ def place_stake(
     bet_id: int, body: StakeCreateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
     bet = _get_bet_or_404(db, bet_id, for_update=True)
-    membership = get_membership_or_403(db, bet.group_id, user.id, for_update=True)
+    # No superadmin bypass here -- staking spends a real balance, which a
+    # superadmin viewing a group it hasn't joined doesn't have.
+    membership = get_membership_or_403(db, bet.group_id, user.id, for_update=True, allow_superadmin=False)
     _ensure_visible(db, bet_id, user.id)
 
     if bet.status != "open":
@@ -250,7 +252,7 @@ def retract_stake(
     bet_id: int, stake_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
     bet = _get_bet_or_404(db, bet_id, for_update=True)
-    membership = get_membership_or_403(db, bet.group_id, user.id, for_update=True)
+    membership = get_membership_or_403(db, bet.group_id, user.id, for_update=True, allow_superadmin=False)
     _ensure_visible(db, bet_id, user.id)
 
     stake = db.get(Stake, stake_id)
@@ -285,7 +287,7 @@ def resolve_bet(
     bet = _get_bet_or_404(db, bet_id, for_update=True)
     group = get_group_or_404(db, bet.group_id)
     _ensure_visible(db, bet_id, user.id)
-    require_creator_or_leader(bet, group, user.id)
+    require_creator_or_leader(bet, group, user)
 
     if bet.status != "open":
         raise HTTPException(status_code=400, detail="This bet is already resolved")

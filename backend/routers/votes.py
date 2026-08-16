@@ -125,7 +125,10 @@ def create_vote(
     group_id: int, body: VoteCreateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
     group = get_group_or_404(db, group_id)
-    get_membership_or_403(db, group_id, user.id)
+    # No superadmin bypass -- starting a vote is a member action, and a
+    # superadmin's ballot would otherwise count toward yes/no without
+    # counting toward total_members (it's not a real Membership row).
+    get_membership_or_403(db, group_id, user.id, allow_superadmin=False)
 
     if body.type not in ("change_leader", "dispute_resolution"):
         raise HTTPException(status_code=400, detail="Invalid vote type")
@@ -211,7 +214,7 @@ def cast_ballot(
     if vote is None:
         raise HTTPException(status_code=404, detail="Vote not found")
     group = get_group_or_404(db, vote.group_id)
-    get_membership_or_403(db, vote.group_id, user.id)
+    get_membership_or_403(db, vote.group_id, user.id, allow_superadmin=False)
 
     if body.choice not in ("yes", "no"):
         raise HTTPException(status_code=400, detail="choice must be 'yes' or 'no'")

@@ -259,7 +259,7 @@ def update_group_settings(
     user: User = Depends(get_current_user),
 ):
     group = get_group_or_404(db, group_id)
-    require_leader(group, user.id)
+    require_leader(group, user)
     category = _validate_category(body.category)
 
     group.is_public = body.is_public
@@ -277,6 +277,10 @@ def update_group_settings(
 def get_group(group_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     group = get_group_or_404(db, group_id)
     my_membership = get_membership_or_403(db, group_id, user.id)
+    is_member = (
+        db.query(Membership).filter(Membership.group_id == group_id, Membership.user_id == user.id).first()
+        is not None
+    )
 
     members = []
     for m in db.query(Membership).filter(Membership.group_id == group_id).all():
@@ -341,7 +345,7 @@ def get_group(group_id: int, db: Session = Depends(get_db), user: User = Depends
         # Only the sub-group's leader can see (and therefore invite from)
         # the parent's full member list -- regular sub-group members get no
         # visibility into who else belongs to the parent group.
-        if group.leader_id == user.id:
+        if group.leader_id == user.id or user.is_superadmin:
             member_ids = {m.user_id for m in db.query(Membership).filter(Membership.group_id == group_id).all()}
             parent_members = db.query(Membership).filter(Membership.group_id == group.parent_group_id).all()
             for pm in parent_members:
@@ -355,7 +359,7 @@ def get_group(group_id: int, db: Session = Depends(get_db), user: User = Depends
 
     return GroupDetail(
         id=group.id, name=group.name, invite_code=group.invite_code, leader_id=group.leader_id,
-        my_balance=my_membership.balance, parent_group_id=group.parent_group_id,
+        my_balance=my_membership.balance, is_member=is_member, parent_group_id=group.parent_group_id,
         parent_group_name=parent_group_name, is_public=group.is_public, category=group.category,
         rules=group.rules, starting_balance=group.starting_balance,
         subgroups=subgroups, invitable_members=invitable_members,
@@ -367,7 +371,9 @@ def get_group(group_id: int, db: Session = Depends(get_db), user: User = Depends
 @router.post("/{group_id}/leave", response_model=dict)
 def leave_group(group_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     group = get_group_or_404(db, group_id)
-    membership = get_membership_or_403(db, group_id, user.id, for_update=True)
+    # No superadmin bypass -- there's nothing real to leave without an
+    # actual membership.
+    membership = get_membership_or_403(db, group_id, user.id, for_update=True, allow_superadmin=False)
 
     if group.leader_id == user.id:
         raise HTTPException(
@@ -386,7 +392,7 @@ def kick_member(
     group_id: int, user_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
     group = get_group_or_404(db, group_id)
-    require_leader(group, user.id)
+    require_leader(group, user)
 
     if user_id == user.id:
         raise HTTPException(status_code=400, detail="You can't kick yourself -- use leave instead")
@@ -411,7 +417,7 @@ def invite_to_subgroup(
     group = get_group_or_404(db, group_id)
     if group.parent_group_id is None:
         raise HTTPException(status_code=403, detail="Only sub-groups support direct invites")
-    require_leader(group, user.id)
+    require_leader(group, user)
     get_membership_or_403(db, group.parent_group_id, user_id)
 
     existing = db.query(Membership).filter(Membership.group_id == group_id, Membership.user_id == user_id).first()

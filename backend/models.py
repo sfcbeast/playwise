@@ -62,6 +62,12 @@ class User(Base):
     # whoever registers first. Granted manually via direct DB access, same
     # spirit as everything else in this app that touches trust boundaries.
     is_admin = Column(Boolean, nullable=False, default=False)
+    # Strictly more powerful than is_admin: bypasses membership checks
+    # entirely, so this account can view and manage every group's internals
+    # (bets, chat, top-ups, settings, members) without ever joining it.
+    # Reserved for a single dedicated account, not a personal one -- same
+    # DB-only grant path as is_admin, deliberately no self-service.
+    is_superadmin = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=utcnow)
 
 

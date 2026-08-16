@@ -43,7 +43,7 @@ def _list_messages(db: Session, group_id, after_id: int):
 def _delete_message(db: Session, message: ChatMessage, user: User, group: Optional[Group]):
     is_own = message.user_id == user.id
     is_group_leader = group is not None and group.leader_id == user.id
-    if not is_own and not is_group_leader:
+    if not is_own and not is_group_leader and not user.is_superadmin:
         raise HTTPException(status_code=403, detail="You can only delete your own messages")
     db.delete(message)
     db.commit()

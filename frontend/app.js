@@ -97,7 +97,7 @@ function optionColor(i) { return OPTION_PALETTE[i % OPTION_PALETTE.length]; }
 
 // ---- votes ---------------------------------------------------------------
 
-function voteCardHtml(vote) {
+function voteCardHtml(vote, canVote = true) {
   const title = vote.type === "change_leader"
     ? `Make ${escapeHtml(vote.target_user_name)} the leader?`
     : `Overturn the resolution of "${escapeHtml(vote.target_bet_question)}"?`;
@@ -111,10 +111,12 @@ function voteCardHtml(vote) {
       <p class="muted" style="margin-top:-6px;">${vote.reason ? `"${escapeHtml(vote.reason)}" — ` : ""}started by ${escapeHtml(vote.initiator_name)}</p>
       <div class="vote-bar"><div class="yes" style="width:${yesPct}%"></div><div class="no" style="width:${noPct}%"></div></div>
       <p class="muted" style="font-size:0.85rem;">${vote.yes_count} yes · ${vote.no_count} no · out of ${vote.total_members} members (needs 60% yes) ${countdown ? `· ${countdown.text}` : ""}</p>
-      <div class="row">
-        <button class="chip vote-yes${vote.my_choice === "yes" ? " active" : ""}" data-vote-ballot="${vote.id}" data-choice="yes">${icon("check", 13)} Yes</button>
-        <button class="chip vote-no${vote.my_choice === "no" ? " active" : ""}" data-vote-ballot="${vote.id}" data-choice="no">${icon("x", 13)} No</button>
-      </div>
+      ${canVote ? `
+        <div class="row">
+          <button class="chip vote-yes${vote.my_choice === "yes" ? " active" : ""}" data-vote-ballot="${vote.id}" data-choice="yes">${icon("check", 13)} Yes</button>
+          <button class="chip vote-no${vote.my_choice === "no" ? " active" : ""}" data-vote-ballot="${vote.id}" data-choice="no">${icon("x", 13)} No</button>
+        </div>
+      ` : ""}
     </div>
   `;
 }
@@ -721,7 +723,7 @@ function renderUserBox() {
     <a class="ghost nav-link" href="#/discover" title="Discover public groups">${icon("globe", 17)}<span class="nav-link-text">Discover</span></a>
     <a class="ghost nav-link" href="#/chat" title="Global chat">${icon("chat", 17)}<span class="nav-link-text">Chat</span></a>
     ${user.is_admin ? `<a class="ghost nav-link" href="#/admin" title="Admin dashboard">${icon("layout", 17)}<span class="nav-link-text">Admin</span></a>` : ""}
-    <span class="name">${escapeHtml(user.display_name)}</span>
+    <span class="name">${escapeHtml(user.display_name)}${user.is_superadmin ? ` <span class="badge god-badge" title="Full access to every group, joined or not">GOD</span>` : ""}</span>
     ${avatarHtml(user.display_name, "sm")}
     ${PUSH_SUPPORTED ? `<button class="ghost icon-btn" id="push-toggle-btn" title="Notifications">${icon("bell", 17)}</button>` : ""}
     <button class="ghost icon-btn" id="recovery-code-btn" title="Get account recovery code">${icon("shield", 17)}</button>
@@ -855,7 +857,7 @@ function viewLogin() {
         method: "POST",
         body: { username: f.get("username"), password: f.get("password") },
       });
-      setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name, is_admin: data.is_admin });
+      setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name, is_admin: data.is_admin, is_superadmin: data.is_superadmin });
       toast(`Welcome back, ${data.display_name}`, "success");
       await consumePendingInviteThenNavigate();
     } catch (err) {
@@ -936,7 +938,7 @@ function viewForgotPassword() {
           new_password: f.get("new_password"),
         },
       });
-      setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name, is_admin: data.is_admin });
+      setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name, is_admin: data.is_admin, is_superadmin: data.is_superadmin });
       toast("Password reset", "success");
       renderRecoveryCodeScreen(data.recovery_code, () => { location.hash = "#/groups"; });
     } catch (err) {
@@ -1018,7 +1020,7 @@ function viewRegister() {
           accepted_terms: f.get("accepted_terms") === "on",
         },
       });
-      setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name, is_admin: data.is_admin });
+      setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name, is_admin: data.is_admin, is_superadmin: data.is_superadmin });
       toast(`Account created — welcome, ${data.display_name}`, "success");
       renderRecoveryCodeScreen(data.recovery_code, consumePendingInviteThenNavigate);
     } catch (err) {
@@ -1333,7 +1335,8 @@ async function viewGroupDetail(groupId) {
   const [group, votes] = await Promise.all([api(`/api/groups/${groupId}`), api(`/api/groups/${groupId}/votes`)]);
   setTitle(group.name);
   const user = getUser();
-  const isLeader = group.leader_id === user.id;
+  const isLeader = group.leader_id === user.id || user.is_superadmin;
+  const canParticipate = group.is_member;
 
   const openLeaderVote = votes.find((v) => v.type === "change_leader" && v.status === "open");
   const otherMembers = group.members.filter((m) => m.user_id !== group.leader_id);
@@ -1387,7 +1390,9 @@ async function viewGroupDetail(groupId) {
           </div>
           ${sg.is_member
             ? `<a href="#/groups/${sg.id}" class="amount" style="text-decoration:none;">${fmtCoins(sg.my_balance)}</a>`
-            : `<span class="muted" style="font-size:0.82rem;">Ask the sub-group's leader to add you</span>`}
+            : user.is_superadmin
+              ? `<a href="#/groups/${sg.id}" class="secondary small">View</a>`
+              : `<span class="muted" style="font-size:0.82rem;">Ask the sub-group's leader to add you</span>`}
         </div>
       `).join("")
     : `<div class="empty-state" style="padding:14px 10px;">${icon("inbox", 22)}<p>No sub-groups yet.</p></div>`;
@@ -1476,14 +1481,16 @@ async function viewGroupDetail(groupId) {
       </div>
     ` : ""}
 
-    <div class="card">
-      <h3 class="card-title">${icon("plus", 16)} Request a top-up</h3>
-      <form id="topup-form" class="form-inline">
-        <input name="amount" type="number" min="1" placeholder="Amount" required />
-        <button type="submit">Request</button>
-      </form>
-      <div class="error" id="topup-error"></div>
-    </div>
+    ${canParticipate ? `
+      <div class="card">
+        <h3 class="card-title">${icon("plus", 16)} Request a top-up</h3>
+        <form id="topup-form" class="form-inline">
+          <input name="amount" type="number" min="1" placeholder="Amount" required />
+          <button type="submit">Request</button>
+        </form>
+        <div class="error" id="topup-error"></div>
+      </div>
+    ` : ""}
 
     ${isLeader ? `
       <div class="card">
@@ -1495,7 +1502,7 @@ async function viewGroupDetail(groupId) {
     <div class="card">
       <h3 class="card-title">${icon("users", 16)} Members</h3>
       ${membersHtml}
-      ${!openLeaderVote && otherMembers.length ? `
+      ${canParticipate && !openLeaderVote && otherMembers.length ? `
         <form id="start-leader-vote-form" class="stack section-gap">
           <label class="field-label">Start a vote to change leader</label>
           <select name="target_user_id">${leaderVoteChoices}</select>
@@ -1507,7 +1514,7 @@ async function viewGroupDetail(groupId) {
       ${!isLeader ? `<button class="ghost small" id="leave-group-btn" style="margin-top:10px;color:var(--negative);">${icon("logout", 14)} Leave group</button>` : ""}
     </div>
 
-    ${openLeaderVote ? voteCardHtml(openLeaderVote) : ""}
+    ${openLeaderVote ? voteCardHtml(openLeaderVote, canParticipate) : ""}
 
     <div class="card">
       <h3 class="card-title">${icon("users", 16)} Sub-groups</h3>
@@ -1719,20 +1726,22 @@ async function viewGroupDetail(groupId) {
     };
   });
 
-  document.getElementById("topup-form").onsubmit = async (e) => {
-    e.preventDefault();
-    const f = new FormData(e.target);
-    try {
-      await api(`/api/groups/${groupId}/topup-requests`, {
-        method: "POST",
-        body: { amount: Number(f.get("amount")) },
-      });
-      toast("Top-up requested — waiting on the leader", "success");
-      await viewGroupDetail(groupId);
-    } catch (err) {
-      document.getElementById("topup-error").textContent = err.message;
-    }
-  };
+  if (canParticipate) {
+    document.getElementById("topup-form").onsubmit = async (e) => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      try {
+        await api(`/api/groups/${groupId}/topup-requests`, {
+          method: "POST",
+          body: { amount: Number(f.get("amount")) },
+        });
+        toast("Top-up requested — waiting on the leader", "success");
+        await viewGroupDetail(groupId);
+      } catch (err) {
+        document.getElementById("topup-error").textContent = err.message;
+      }
+    };
+  }
 
   document.getElementById("add-option-btn").onclick = () => {
     const container = document.getElementById("options-container");
@@ -1851,7 +1860,7 @@ async function viewBetDetail(betId) {
   const disputeVote = votes.find((v) => v.type === "dispute_resolution" && v.target_bet_id === betId);
   setTitle(bet.question);
   const user = getUser();
-  const isLeader = group.leader_id === user.id;
+  const isLeader = group.leader_id === user.id || user.is_superadmin;
   const isCreator = bet.creator_id === user.id;
   const canResolve = isLeader || isCreator;
   const canDelete = (isLeader || isCreator) && bet.status === "open";
@@ -1994,8 +2003,8 @@ async function viewBetDetail(betId) {
 
     ${payoutsHtml}
 
-    ${disputeVote ? voteCardHtml(disputeVote) : ""}
-    ${bet.status === "resolved" && !disputeVote ? `
+    ${disputeVote ? voteCardHtml(disputeVote, group.is_member) : ""}
+    ${bet.status === "resolved" && !disputeVote && group.is_member ? `
       <div class="card">
         <h3 class="card-title">${icon("flag", 16)} Think this was resolved wrong?</h3>
         <form id="dispute-form" class="stack">
@@ -2365,12 +2374,13 @@ async function renderChatView({ apiBase, title, backHref, backLabel, isModerator
 }
 
 async function viewGlobalChat() {
+  const user = getUser();
   await renderChatView({
     apiBase: "/api/chat/global",
     title: "Global chat",
     backHref: "#/groups",
     backLabel: "All groups",
-    isModerator: false,
+    isModerator: !!user.is_superadmin,
   });
 }
 
@@ -2383,7 +2393,7 @@ async function viewGroupChat(groupId) {
     title: `${group.name} chat`,
     backHref: `#/groups/${groupId}`,
     backLabel: group.name,
-    isModerator: group.leader_id === user.id,
+    isModerator: group.leader_id === user.id || user.is_superadmin,
   });
 }
 
