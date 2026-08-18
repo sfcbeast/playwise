@@ -51,7 +51,8 @@ def register(body: RegisterRequest, request: Request, db: Session = Depends(get_
     token = create_access_token(user.id, user.token_version)
     return TokenResponse(
         access_token=token, user_id=user.id, username=user.username, display_name=user.display_name,
-        is_admin=user.is_admin, is_superadmin=user.is_superadmin, recovery_code=recovery_code,
+        is_admin=user.is_admin, is_superadmin=user.is_superadmin, is_premium=user.is_premium,
+        recovery_code=recovery_code,
     )
 
 
@@ -64,7 +65,7 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
     token = create_access_token(user.id, user.token_version)
     return TokenResponse(
         access_token=token, user_id=user.id, username=user.username, display_name=user.display_name,
-        is_admin=user.is_admin, is_superadmin=user.is_superadmin,
+        is_admin=user.is_admin, is_superadmin=user.is_superadmin, is_premium=user.is_premium,
     )
 
 
@@ -96,7 +97,8 @@ def reset_password(body: ResetPasswordRequest, request: Request, db: Session = D
     token = create_access_token(user.id, user.token_version)
     return TokenResponse(
         access_token=token, user_id=user.id, username=user.username, display_name=user.display_name,
-        is_admin=user.is_admin, is_superadmin=user.is_superadmin, recovery_code=new_recovery_code,
+        is_admin=user.is_admin, is_superadmin=user.is_superadmin, is_premium=user.is_premium,
+        recovery_code=new_recovery_code,
     )
 
 

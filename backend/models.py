@@ -68,6 +68,11 @@ class User(Base):
     # Reserved for a single dedicated account, not a personal one -- same
     # DB-only grant path as is_admin, deliberately no self-service.
     is_superadmin = Column(Boolean, nullable=False, default=False)
+    # Cached from the Subscription row below (kept in sync by the billing
+    # webhook) so every ad-gating check in the app is a single boolean read
+    # instead of a join -- the Subscription row is still the source of
+    # truth for actual billing state.
+    is_premium = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=utcnow)
 
 
@@ -260,3 +265,23 @@ class PushSubscription(Base):
     p256dh_key = Column(String, nullable=False)
     auth_key = Column(String, nullable=False)
     created_at = Column(DateTime, default=utcnow)
+
+
+class Subscription(Base):
+    """Source of truth for a user's Playwise+ billing state -- one row per
+    user, created on their first checkout and updated from there entirely
+    by Stripe webhook events (checkout completed, renewed, canceled,
+    payment failed). User.is_premium is a denormalized copy of
+    `status == "active"` for cheap reads everywhere else in the app; this
+    table is what actually reconciles against Stripe's records."""
+    __tablename__ = "subscriptions"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    stripe_customer_id = Column(String, nullable=True)
+    stripe_subscription_id = Column(String, unique=True, nullable=True)
+    plan = Column(String, nullable=True)  # monthly | annual
+    status = Column(String, nullable=False, default="none")  # none | active | canceled | past_due
+    current_period_end = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)

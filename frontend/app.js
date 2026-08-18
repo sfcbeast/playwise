@@ -631,7 +631,13 @@ function setTitle(suffix) {
 // SDK targeting these element ids) can be plugged in later without any
 // further layout changes. `data-ad-slot` names the placement for whatever
 // config maps slots to ad units.
+//
+// Playwise+ subscribers see no ads at all -- that's the subscription's
+// core value, so this is the single choke point every ad placement goes
+// through rather than a check duplicated at each call site.
 function adSlot(slotId, label) {
+  const user = getUser();
+  if (user && user.is_premium) return "";
   return `
     <div class="ad-slot" id="ad-slot-${slotId}" data-ad-slot="${slotId}">
       <span class="ad-slot-label">Advertisement</span>
@@ -863,7 +869,7 @@ function viewLogin() {
         method: "POST",
         body: { username: f.get("username"), password: f.get("password") },
       });
-      setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name, is_admin: data.is_admin, is_superadmin: data.is_superadmin });
+      setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name, is_admin: data.is_admin, is_superadmin: data.is_superadmin, is_premium: data.is_premium });
       toast(`Welcome back, ${data.display_name}`, "success");
       await consumePendingInviteThenNavigate();
     } catch (err) {
@@ -944,7 +950,7 @@ function viewForgotPassword() {
           new_password: f.get("new_password"),
         },
       });
-      setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name, is_admin: data.is_admin, is_superadmin: data.is_superadmin });
+      setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name, is_admin: data.is_admin, is_superadmin: data.is_superadmin, is_premium: data.is_premium });
       toast("Password reset", "success");
       renderRecoveryCodeScreen(data.recovery_code, () => { location.hash = "#/groups"; });
     } catch (err) {
@@ -1071,7 +1077,7 @@ function viewRegister() {
           accepted_terms: f.get("accepted_terms") === "on",
         },
       });
-      setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name, is_admin: data.is_admin, is_superadmin: data.is_superadmin });
+      setAuth(data.access_token, { id: data.user_id, username: data.username, display_name: data.display_name, is_admin: data.is_admin, is_superadmin: data.is_superadmin, is_premium: data.is_premium });
       toast(`Account created — welcome, ${data.display_name}`, "success");
       renderRecoveryCodeScreen(data.recovery_code, consumePendingInviteThenNavigate);
     } catch (err) {

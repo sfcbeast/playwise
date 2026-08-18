@@ -24,6 +24,7 @@ class TokenResponse(BaseModel):
     display_name: str
     is_admin: bool = False
     is_superadmin: bool = False
+    is_premium: bool = False
     recovery_code: Optional[str] = None  # only ever populated once, at (re)generation
 
 
