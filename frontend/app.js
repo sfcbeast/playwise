@@ -792,7 +792,12 @@ async function render() {
   }
 
   const loggedOutRoutes = ["#/login", "#/register", "#/forgot-password"];
-  if (!user && !loggedOutRoutes.includes(hash)) {
+  // Accessible whether signed in or not, with no redirect either way -- a
+  // legal document has to be reachable by someone who hasn't made an
+  // account yet (an ad reviewer, a link from an app store listing), not
+  // just existing users.
+  const publicRoutes = ["#/privacy"];
+  if (!user && !loggedOutRoutes.includes(hash) && !publicRoutes.includes(hash)) {
     location.hash = "#/login";
     return;
   }
@@ -809,6 +814,7 @@ async function render() {
     if (hash === "#/login") return viewLogin();
     if (hash === "#/register") return viewRegister();
     if (hash === "#/forgot-password") return viewForgotPassword();
+    if (hash === "#/privacy") return viewPrivacyPolicy();
     if (joinLinkMatch) return await viewJoinByCode(joinLinkMatch[1]);
     if (hash === "#/chat") return await viewGlobalChat();
     if (hash === "#/discover") return await viewDiscover();
@@ -948,6 +954,51 @@ function viewForgotPassword() {
   };
 }
 
+function viewPrivacyPolicy() {
+  setTitle("Privacy Policy");
+  const user = getUser();
+  const backHref = user ? "#/groups" : "#/login";
+  const backLabel = user ? "Back to Playwise" : "Back to login";
+  setApp(`
+    <a href="${backHref}" class="row" style="gap:6px;color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;">${icon("arrowLeft", 15)} ${backLabel}</a>
+    <div class="card">
+      <h1 class="row" style="gap:8px;">${icon("shield", 20)} Privacy Policy</h1>
+      <div class="squiggle"></div>
+      <p class="muted" style="font-size:0.85rem;">Last updated August 2026</p>
+
+      <h3 class="card-title" style="margin-top:22px;">What Playwise is</h3>
+      <p>Playwise is a social prediction game — friends form groups, stake play-money coins on the outcome of questions they post, and split the pool when a question resolves. Coins have no real-world value and can never be bought, sold, or redeemed for cash. This policy explains what information we collect to run the app and how it's used.</p>
+
+      <h3 class="card-title" style="margin-top:22px;">Information we collect</h3>
+      <p><strong>Account information:</strong> your username, display name, and password. Your password is stored as an irreversible bcrypt hash — we never store or have access to the plain text. If you save an account-recovery code, it's stored the same way (hashed), and shown to you in full only once, at the moment it's generated.</p>
+      <p><strong>Activity you generate:</strong> the groups you create or join, questions you post, predictions and stakes you make, chat messages, and your coin balance/transaction history. This is the core data the app needs to function — there's no way to use Playwise without it.</p>
+      <p><strong>Push notifications (optional):</strong> if you turn these on, your browser gives us a subscription endpoint and encryption keys, which we use only to deliver notifications from this app. Nothing is sent if you don't enable this.</p>
+      <p><strong>Technical data:</strong> we use IP addresses briefly, in server memory only, to rate-limit abusive behavior (like repeated login attempts). This is never written to our database and doesn't persist across a server restart.</p>
+
+      <h3 class="card-title" style="margin-top:22px;">Cookies &amp; advertising</h3>
+      <p>Playwise itself doesn't use tracking cookies — you stay signed in via a token stored in your browser, not a cookie. Playwise shows ads served by Google AdSense, which may use cookies and similar technology to personalize ads and measure their performance. That data is handled under Google's own privacy policy, and you can review or adjust your ad personalization settings at <span style="word-break:break-all;">adssettings.google.com</span>.</p>
+
+      <h3 class="card-title" style="margin-top:22px;">How we use this information</h3>
+      <p>To operate and maintain the app, prevent abuse and spam, review content that's been reported to moderators, send notifications you've opted into, and — once approved — serve ads through Google AdSense. We don't use your data for anything beyond running Playwise.</p>
+
+      <h3 class="card-title" style="margin-top:22px;">What we don't do</h3>
+      <p>We don't sell your personal information, and we don't share it with third parties beyond the service providers necessary to run Playwise (our hosting provider, database provider, and Google AdSense once ads are live).</p>
+
+      <h3 class="card-title" style="margin-top:22px;">Data retention &amp; deletion</h3>
+      <p>We keep your information for as long as your account exists. You can request deletion of your account and associated data at any time by emailing us at the address below — note that some records shared with other people (like messages you sent in a group, or transactions tied to a group's shared history) may not be fully removable without affecting other members' records, similar to most group-based apps.</p>
+
+      <h3 class="card-title" style="margin-top:22px;">Age requirement</h3>
+      <p>Playwise is intended for users 18 and older, and account creation requires confirming this. We don't knowingly collect information from anyone under 18.</p>
+
+      <h3 class="card-title" style="margin-top:22px;">Changes to this policy</h3>
+      <p>If this policy changes, we'll update the date at the top of this page. Continuing to use Playwise after a change means you accept the updated policy.</p>
+
+      <h3 class="card-title" style="margin-top:22px;">Contact</h3>
+      <p>Questions, or want your data deleted? Email <a href="mailto:suryavamsid15@gmail.com">suryavamsid15@gmail.com</a>.</p>
+    </div>
+  `);
+}
+
 // After a successful login/register, joins whatever group a shared invite
 // link (#/join/CODE) queued up before bouncing the visitor through auth --
 // this is what makes "come see, I just won" a real one-click flow instead
@@ -996,7 +1047,7 @@ function viewRegister() {
           <input name="password" type="password" placeholder="Password (6+ characters)" autocomplete="new-password" required minlength="6" />
           <label class="terms-check">
             <input type="checkbox" name="accepted_terms" required />
-            <span>I'm 18 or older and understand Playwise coins are play money only — they have no cash value and can never be bought, sold, or redeemed for real currency.</span>
+            <span>I'm 18 or older and understand Playwise coins are play money only — they have no cash value and can never be bought, sold, or redeemed for real currency. I've read the <a href="#/privacy" target="_blank" rel="noopener">Privacy Policy</a>.</span>
           </label>
           <div class="error" id="register-error"></div>
           <button type="submit">Create account</button>
