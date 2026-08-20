@@ -112,6 +112,10 @@ class BetSummary(BaseModel):
     hidden_from_names: List[str]
     image_data: Optional[str] = None
     created_at: datetime.datetime
+    # Most-recent-first, deduplicated -- backs the avatar-stack social proof
+    # row ("Sarah & 6 others staked") on the group's bet list.
+    staker_names: List[str] = []
+    staker_count: int = 0
 
 
 class GroupDetail(BaseModel):

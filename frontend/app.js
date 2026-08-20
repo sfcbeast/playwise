@@ -1480,6 +1480,15 @@ async function viewGroupDetail(groupId) {
     const leaderPct = total ? Math.round((Math.max(...b.option_totals) / total) * 100) : 0;
     const leaderIdx = b.option_totals.indexOf(Math.max(...b.option_totals));
     const countdown = b.status === "open" && b.closes_at ? formatCountdown(b.closes_at) : null;
+    const stakerHtml = b.staker_count > 0 ? `
+      <div class="staker-strip">
+        <div class="staker-avatars">
+          ${b.staker_names.slice(0, 4).map((n) => avatarHtml(n, "sm")).join("")}
+          ${b.staker_count > 4 ? `<span class="staker-more">+${b.staker_count - 4}</span>` : ""}
+        </div>
+        <span class="staker-caption">${escapeHtml(b.staker_names[0])}${b.staker_count > 1 ? ` &amp; ${b.staker_count - 1} other${b.staker_count - 1 === 1 ? "" : "s"} staked` : " staked"}</span>
+      </div>
+    ` : "";
     return `
       <a class="list-item clickable" href="#/bets/${b.id}">
         <div class="identity" style="flex:1;min-width:0;">
@@ -1490,6 +1499,7 @@ async function viewGroupDetail(groupId) {
               <span>${fmtCoins(total)} staked</span>
               ${total ? `<span style="color:${optionColor(leaderIdx)}">${escapeHtml(b.options[leaderIdx])} ${leaderPct}%</span>` : ""}
             </div>
+            ${stakerHtml}
           </div>
         </div>
         <span class="row" style="gap:6px;">
@@ -1613,7 +1623,7 @@ async function viewGroupDetail(groupId) {
       </div>
     ` : ""}
 
-    <div class="card">
+    <div class="card" id="new-question-section">
       <h3 class="card-title">${icon("bolt", 16)} New question</h3>
       <form id="bet-form" class="stack">
         <input name="question" placeholder="What's the question?" required />
@@ -1680,7 +1690,13 @@ async function viewGroupDetail(groupId) {
     ` : ""}
 
     ${adSlot("group-detail-bottom", "300x250 medium rectangle")}
+    <button class="fab" id="new-question-fab" title="Ask a new question">${icon("plus", 26)}</button>
   `);
+
+  document.getElementById("new-question-fab").onclick = () => {
+    document.getElementById("new-question-section").scrollIntoView({ behavior: "smooth", block: "start" });
+    document.querySelector('#bet-form input[name="question"]')?.focus({ preventScroll: true });
+  };
 
   renderBalanceNumber(document.getElementById("balance-number"), `group:${groupId}`, group.my_balance);
 
@@ -1975,6 +1991,18 @@ async function viewBetDetail(betId) {
 
   const optionChoices = bet.options.map((opt, i) => `<option value="${i}">${escapeHtml(opt)}</option>`).join("");
 
+  const optionPickHtml = bet.options.map((opt, i) => {
+    const amt = bet.option_totals[i];
+    const pct = total ? Math.round((amt / total) * 100) : 0;
+    return `
+      <button type="button" class="option-pick-btn${i === 0 ? " active" : ""}" data-option-pick="${i}">
+        <span class="option-pick-label">${escapeHtml(opt)}</span>
+        <span class="option-pick-pct">${pct}%</span>
+        ${i === 0 ? `<span class="option-pick-check">${icon("check", 12)}</span>` : ""}
+      </button>
+    `;
+  }).join("");
+
   const myStakesHtml = bet.my_stakes.length
     ? bet.my_stakes.map((s) => `
         <div class="list-item">
@@ -2095,7 +2123,8 @@ async function viewBetDetail(betId) {
         <h3 class="card-title">${icon("bolt", 16)} Place a stake</h3>
         <p class="muted" style="margin-top:-4px;">Your balance: <strong>${fmtCoins(group.my_balance)}</strong> coins</p>
         <form id="stake-form" class="stack">
-          <select name="option_index" id="stake-option">${optionChoices}</select>
+          <div class="option-pick-grid">${optionPickHtml}</div>
+          <input type="hidden" name="option_index" id="stake-option-index" value="0" />
           <input name="amount" id="stake-amount" type="number" min="1" max="${group.my_balance}" placeholder="Amount" required ${group.my_balance < 1 ? "disabled" : ""} />
           <div class="row" id="chip-row">
             ${[25, 50, 100].map((v) => `<button type="button" class="chip" data-chip="${v}">+${v}</button>`).join("")}
@@ -2134,12 +2163,12 @@ async function viewBetDetail(betId) {
   `);
 
   const amountInput = document.getElementById("stake-amount");
-  const optionSelect = document.getElementById("stake-option");
+  const optionIndexInput = document.getElementById("stake-option-index");
   const hintEl = document.getElementById("stake-hint");
 
   function updateHint() {
     const amount = Number(amountInput?.value || 0);
-    const idx = Number(optionSelect?.value || 0);
+    const idx = Number(optionIndexInput?.value || 0);
     if (!amount || amount <= 0) { hintEl.textContent = ""; return; }
     const totals = bet.option_totals.slice();
     totals[idx] += amount;
@@ -2148,9 +2177,21 @@ async function viewBetDetail(betId) {
     hintEl.textContent = `If "${bet.options[idx]}" wins right now, you'd receive ~${fmtCoins(payout)} coins (estimate — more stakes may still come in).`;
   }
 
+  document.querySelectorAll("[data-option-pick]").forEach((btn) => {
+    btn.onclick = () => {
+      document.querySelectorAll(".option-pick-btn").forEach((b) => {
+        b.classList.remove("active");
+        b.querySelector(".option-pick-check")?.remove();
+      });
+      btn.classList.add("active");
+      btn.insertAdjacentHTML("beforeend", `<span class="option-pick-check">${icon("check", 12)}</span>`);
+      optionIndexInput.value = btn.dataset.optionPick;
+      updateHint();
+    };
+  });
+
   if (amountInput) {
     amountInput.addEventListener("input", updateHint);
-    optionSelect.addEventListener("change", updateHint);
     document.querySelectorAll("[data-chip]").forEach((chip) => {
       chip.onclick = () => {
         amountInput.value = chip.dataset.chip === "max" ? group.my_balance : Math.min(chip.dataset.chip, group.my_balance);

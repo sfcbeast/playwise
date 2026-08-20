@@ -51,6 +51,20 @@ def _hidden_from_names(db: Session, bet_id: int):
     return [db.get(User, r.user_id).display_name for r in rows]
 
 
+def _stakers(db: Session, bet_id: int):
+    """Distinct people who've staked on this bet, most-recent-stake-first --
+    backs the avatar-stack social proof row on the group's bet list."""
+    rows = db.query(Stake).filter(Stake.bet_id == bet_id).order_by(Stake.created_at.desc()).all()
+    seen = set()
+    names = []
+    for s in rows:
+        if s.user_id in seen:
+            continue
+        seen.add(s.user_id)
+        names.append(db.get(User, s.user_id).display_name)
+    return names, len(names)
+
+
 def _remove_member(db: Session, group_id: int, membership: Membership):
     """Shared by leave/kick: refund any stakes the person has on still-open
     bets (otherwise a resolution later would try to pay out to a membership
@@ -295,13 +309,14 @@ def get_group(group_id: int, db: Session = Depends(get_db), user: User = Depends
     for bet in db.query(Bet).filter(Bet.group_id == group_id).order_by(Bet.created_at.desc()).all():
         if bet.id in hidden_bet_ids:
             continue
+        staker_names, staker_count = _stakers(db, bet.id)
         bets.append(
             BetSummary(
                 id=bet.id, question=bet.question, options=bet.options, status=bet.status,
                 winning_option=bet.winning_option, creator_id=bet.creator_id,
                 option_totals=_option_totals(db, bet), closes_at=bet.closes_at,
                 hidden_from_names=_hidden_from_names(db, bet.id), image_data=bet.image_data,
-                created_at=bet.created_at,
+                created_at=bet.created_at, staker_names=staker_names, staker_count=staker_count,
             )
         )
 

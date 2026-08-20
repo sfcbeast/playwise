@@ -127,6 +127,36 @@ def test_pari_mutuel_payout_math(client, unique):
     assert alice_balance + bob_balance + carol_balance == 1500  # no coins created or destroyed
 
 
+def test_bet_summary_includes_staker_names_most_recent_first(client, unique):
+    alice = register(client, f"a_{unique}")
+    bob = register(client, f"b_{unique}")
+    group = create_group(client, alice, f"Staker Group {unique}")
+    join_group(client, bob, group["invite_code"])
+    topup(client, alice, group["id"], 500, alice)
+    topup(client, bob, group["id"], 500, alice)
+
+    bet = client.post(
+        f"/api/groups/{group['id']}/bets", json={"question": "Q?", "options": ["Yes", "No"]}, headers=alice["auth"],
+    ).json()
+
+    # no one's staked yet
+    row = client.get(f"/api/groups/{group['id']}", headers=alice["auth"]).json()["bets"][0]
+    assert row["staker_names"] == []
+    assert row["staker_count"] == 0
+
+    client.post(f"/api/bets/{bet['id']}/stake", json={"option_index": 0, "amount": 50}, headers=alice["auth"])
+    client.post(f"/api/bets/{bet['id']}/stake", json={"option_index": 1, "amount": 50}, headers=bob["auth"])
+    # alice stakes again -- shouldn't create a duplicate entry
+    client.post(f"/api/bets/{bet['id']}/stake", json={"option_index": 0, "amount": 25}, headers=alice["auth"])
+
+    row = client.get(f"/api/groups/{group['id']}", headers=alice["auth"]).json()["bets"][0]
+    assert row["staker_count"] == 2
+    # alice's second stake is chronologically the most recent event, so she
+    # sorts first after dedup even though bob staked in between her two.
+    assert row["staker_names"][0] == alice["username"]
+    assert set(row["staker_names"]) == {alice["username"], bob["username"]}
+
+
 def test_refund_when_nobody_picks_winner(client, unique):
     alice = register(client, f"a_{unique}")
     bob = register(client, f"b_{unique}")
