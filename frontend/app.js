@@ -845,7 +845,7 @@ function viewLogin() {
   setApp(`
     <div class="auth-shell">
       <div class="card">
-        <div class="brand-mark">${icon("bolt", 20)}</div>
+        <div class="brand-mark"><img src="icons/icon-192.png" alt="" width="40" height="40" /></div>
         <h1 class="center">Welcome back</h1>
         <p class="tagline center">Fake money, real bragging rights.</p>
         <form id="login-form" class="stack">
@@ -1044,7 +1044,7 @@ function viewRegister() {
   setApp(`
     <div class="auth-shell">
       <div class="card">
-        <div class="brand-mark">${icon("bolt", 20)}</div>
+        <div class="brand-mark"><img src="icons/icon-192.png" alt="" width="40" height="40" /></div>
         <h1 class="center">Create your account</h1>
         <p class="tagline center">Join a group and start predicting. Play money only — never real cash.</p>
         <form id="register-form" class="stack">
