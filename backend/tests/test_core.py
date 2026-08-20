@@ -127,6 +127,43 @@ def test_pari_mutuel_payout_math(client, unique):
     assert alice_balance + bob_balance + carol_balance == 1500  # no coins created or destroyed
 
 
+def test_leaderboard_ranks_by_net_winnings_not_balance(client, unique):
+    alice = register(client, f"a_{unique}")
+    bob = register(client, f"b_{unique}")
+    carol = register(client, f"c_{unique}")
+    group = create_group(client, alice, f"Leaderboard Group {unique}")
+    join_group(client, bob, group["invite_code"])
+    join_group(client, carol, group["invite_code"])
+    # alice gets a much bigger top-up than bob -- a balance-based ranking
+    # would put her first regardless of prediction skill.
+    topup(client, alice, group["id"], 5000, alice)
+    topup(client, bob, group["id"], 500, alice)
+    topup(client, carol, group["id"], 500, alice)
+
+    bet = client.post(
+        f"/api/groups/{group['id']}/bets", json={"question": "Q?", "options": ["Yes", "No"]}, headers=alice["auth"],
+    ).json()
+    # alice stakes big on the loser; bob stakes small on the winner
+    client.post(f"/api/bets/{bet['id']}/stake", json={"option_index": 1, "amount": 300}, headers=alice["auth"])
+    client.post(f"/api/bets/{bet['id']}/stake", json={"option_index": 0, "amount": 50}, headers=bob["auth"])
+    client.post(f"/api/bets/{bet['id']}/resolve", json={"winning_option": 0}, headers=alice["auth"])
+
+    board = client.get(f"/api/groups/{group['id']}/leaderboard", headers=alice["auth"]).json()
+    by_id = {e["user_id"]: e for e in board}
+
+    # total pool 350, winning pool 50 (just bob) -> payout = 50 * 350 // 50 = 350
+    assert by_id[bob["id"]]["net_winnings"] == 300  # -50 stake + 350 payout
+    assert by_id[alice["id"]]["net_winnings"] == -300  # lost her stake, no payout
+    assert by_id[carol["id"]]["net_winnings"] == 0  # never staked
+
+    # alice's balance (5000 topup - 300 stake = 4700) still dwarfs bob's
+    # (500 + payout), proving balance and net_winnings really do diverge.
+    assert by_id[alice["id"]]["balance"] > by_id[bob["id"]]["balance"]
+    # but bob outranks alice on the leaderboard itself
+    ranked_ids = [e["user_id"] for e in board]
+    assert ranked_ids.index(bob["id"]) < ranked_ids.index(alice["id"])
+
+
 def test_bet_summary_includes_staker_names_most_recent_first(client, unique):
     alice = register(client, f"a_{unique}")
     bob = register(client, f"b_{unique}")

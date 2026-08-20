@@ -785,6 +785,48 @@ button.chip.active { background: color-mix(in srgb, var(--accent) 16%, transpare
 .staker-caption { font-size: 0.78rem; color: var(--text-tertiary); font-style: italic; }
 
 /* ---------------------------------------------------------------------
+   Leaderboard podium
+--------------------------------------------------------------------- */
+.podium {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 4px 0;
+}
+.podium-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  max-width: 130px;
+}
+.podium-slot .avatar { border: 3px solid var(--podium-color, var(--border-strong)); }
+.podium-slot .podium-name { font-weight: 700; font-size: 0.85rem; margin-top: 8px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.podium-slot .podium-amount { font-size: 0.8rem; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.podium-stand {
+  width: 100%;
+  margin-top: 10px;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: var(--card);
+  border: 1px solid var(--border-strong);
+  border-bottom: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 1.3rem;
+  color: var(--podium-color, var(--text-secondary));
+}
+.podium-slot.rank-1 { order: 2; }
+.podium-slot.rank-1 .avatar { width: 60px; height: 60px; font-size: 1.7rem; }
+.podium-slot.rank-1 .podium-stand { height: 64px; }
+.podium-slot.rank-2 { order: 1; }
+.podium-slot.rank-2 .podium-stand { height: 44px; }
+.podium-slot.rank-3 { order: 3; }
+.podium-slot.rank-3 .podium-stand { height: 32px; }
+
+/* ---------------------------------------------------------------------
    Votes
 --------------------------------------------------------------------- */
 .vote-bar {

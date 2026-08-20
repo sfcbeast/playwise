@@ -814,6 +814,7 @@ async function render() {
 
   const groupMatch = hash.match(/^#\/groups\/(\d+)$/);
   const groupChatMatch = hash.match(/^#\/groups\/(\d+)\/chat$/);
+  const groupLeaderboardMatch = hash.match(/^#\/groups\/(\d+)\/leaderboard$/);
   const betMatch = hash.match(/^#\/bets\/(\d+)$/);
 
   try {
@@ -827,6 +828,7 @@ async function render() {
     if (hash === "#/admin") return await viewAdminDashboard();
     if (hash === "#/admin/reports") return await viewAdminReports();
     if (groupChatMatch) return await viewGroupChat(Number(groupChatMatch[1]));
+    if (groupLeaderboardMatch) return await viewLeaderboard(Number(groupLeaderboardMatch[1]));
     if (groupMatch) return await viewGroupDetail(Number(groupMatch[1]));
     if (betMatch) return await viewBetDetail(Number(betMatch[1]));
     return await viewGroups();
@@ -1532,6 +1534,7 @@ async function viewGroupDetail(groupId) {
         </div>
         <button class="secondary small" id="share-invite-btn">${icon("chat", 14)} Invite a friend</button>
         <a href="#/groups/${groupId}/chat" class="secondary small" style="display:inline-flex;align-items:center;gap:6px;">${icon("chat", 14)} Group chat</a>
+        <a href="#/groups/${groupId}/leaderboard" class="secondary small" style="display:inline-flex;align-items:center;gap:6px;">${icon("trophy", 14)} Leaderboard</a>
         ${group.is_public ? `<span class="badge">${escapeHtml(categoryLabel(group.category) || "🌐 Public")}</span>` : ""}
       </div>
     </div>
@@ -1938,6 +1941,70 @@ async function viewGroupDetail(groupId) {
   });
 
   startPolling(groupId, group.latest_event_id, () => softRefresh(() => viewGroupDetail(groupId)));
+}
+
+// ---- views: leaderboard --------------------------------------------------
+// Ranked by net winnings (payouts + refunds - stakes, top-ups excluded),
+// not raw balance -- a group can set any starting balance, so balance alone
+// would just reward whoever joined luckiest rather than whoever predicts
+// well. See backend/routers/groups.py's get_leaderboard for the math.
+
+const PODIUM_COLORS = ["#e9c400", "#c0c0c0", "#cd7f32"]; // gold, silver, bronze
+
+function leaderboardRowHtml(entry, rank) {
+  const positive = entry.net_winnings > 0;
+  const negative = entry.net_winnings < 0;
+  const sign = positive ? "+" : "";
+  return `
+    <div class="list-item">
+      <span class="muted" style="width:22px;text-align:center;font-weight:700;flex-shrink:0;">${rank}</span>
+      <div class="identity" style="flex:1;min-width:0;">
+        ${avatarHtml(entry.display_name)}
+        <div class="meta"><div class="primary">${escapeHtml(entry.display_name)}</div></div>
+      </div>
+      <span class="amount${positive ? " positive" : ""}${negative ? " negative" : ""}">${sign}${fmtCoins(entry.net_winnings)}</span>
+    </div>
+  `;
+}
+
+async function viewLeaderboard(groupId) {
+  setTitle("Leaderboard");
+  setApp(skeletonView(2));
+  const [group, board] = await Promise.all([
+    api(`/api/groups/${groupId}`), api(`/api/groups/${groupId}/leaderboard`),
+  ]);
+  setTitle(`${group.name} leaderboard`);
+
+  const top3 = board.slice(0, 3);
+  const rest = board.slice(3);
+
+  const podiumHtml = top3.length ? `
+    <div class="podium">
+      ${top3.map((entry, i) => `
+        <div class="podium-slot rank-${i + 1}" style="--podium-color:${PODIUM_COLORS[i]}">
+          ${avatarHtml(entry.display_name)}
+          <div class="podium-name">${escapeHtml(entry.display_name)}</div>
+          <div class="podium-amount">${entry.net_winnings > 0 ? "+" : ""}${fmtCoins(entry.net_winnings)}</div>
+          <div class="podium-stand">${i + 1}</div>
+        </div>
+      `).join("")}
+    </div>
+  ` : "";
+
+  setApp(`
+    <a href="#/groups/${groupId}" class="row" style="gap:6px;color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;">${icon("arrowLeft", 15)} ${escapeHtml(group.name)}</a>
+    <div class="card">
+      <h1 class="row" style="gap:8px;">${icon("trophy", 20)} Leaderboard</h1>
+      <div class="squiggle"></div>
+      <p class="muted" style="margin:0;">Ranked by net winnings — what you've actually won or lost predicting, not your balance.</p>
+    </div>
+    ${board.length ? `
+      <div class="card">
+        ${podiumHtml}
+        ${rest.length ? `<div class="section-gap"></div>${rest.map((e, i) => leaderboardRowHtml(e, i + 4)).join("")}` : ""}
+      </div>
+    ` : `<div class="card empty-state">${icon("trophy", 28)}<p>No members yet.</p></div>`}
+  `);
 }
 
 // ---- views: bet detail -------------------------------------------------

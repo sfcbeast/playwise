@@ -18,6 +18,7 @@ from backend.schemas import (
     GroupJoinRequest,
     GroupSettingsUpdateRequest,
     GroupSummary,
+    LeaderboardEntryOut,
     MemberBalance,
     PublicGroupOut,
     PublicJoinRequest,
@@ -381,6 +382,29 @@ def get_group(group_id: int, db: Session = Depends(get_db), user: User = Depends
         members=members, bets=bets, pending_topups=pending_topups,
         latest_event_id=latest_event_id,
     )
+
+
+@router.get("/{group_id}/leaderboard", response_model=list[LeaderboardEntryOut])
+def get_leaderboard(group_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    get_group_or_404(db, group_id)
+    get_membership_or_403(db, group_id, user.id)
+
+    winnings_by_user = dict(
+        db.query(Transaction.user_id, func.sum(Transaction.amount))
+        .filter(Transaction.group_id == group_id, Transaction.type != "topup")
+        .group_by(Transaction.user_id)
+        .all()
+    )
+
+    entries = [
+        LeaderboardEntryOut(
+            user_id=m.user_id, display_name=m.user.display_name,
+            net_winnings=winnings_by_user.get(m.user_id, 0), balance=m.balance,
+        )
+        for m in db.query(Membership).filter(Membership.group_id == group_id).all()
+    ]
+    entries.sort(key=lambda e: e.net_winnings, reverse=True)
+    return entries
 
 
 @router.post("/{group_id}/leave", response_model=dict)

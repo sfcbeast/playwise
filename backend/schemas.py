@@ -100,6 +100,16 @@ class MemberBalance(BaseModel):
     balance: int
 
 
+class LeaderboardEntryOut(BaseModel):
+    user_id: int
+    display_name: str
+    # Total payouts/refunds minus total stakes (top-ups excluded) -- this is
+    # the "who's actually good at predicting" number, since it's unaffected
+    # by a group's starting balance or how many top-ups someone's gotten.
+    net_winnings: int
+    balance: int
+
+
 class BetSummary(BaseModel):
     id: int
     question: str
