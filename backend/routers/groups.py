@@ -52,6 +52,24 @@ def _hidden_from_names(db: Session, bet_id: int):
     return [db.get(User, r.user_id).display_name for r in rows]
 
 
+def _trending_question(db: Session, group_id: int, hidden_bet_ids: set):
+    """The group's most-staked open question, for the Discover card preview
+    -- skips incognito bets entirely (hidden from specific members), since
+    showing one to a random browsing non-member would defeat the point."""
+    rows = (
+        db.query(Bet.id, Bet.question)
+        .outerjoin(Stake, Stake.bet_id == Bet.id)
+        .filter(Bet.group_id == group_id, Bet.status == "open")
+        .group_by(Bet.id, Bet.question)
+        .order_by(func.coalesce(func.sum(Stake.amount), 0).desc())
+        .all()
+    )
+    for bet_id, question in rows:
+        if bet_id not in hidden_bet_ids:
+            return question
+    return None
+
+
 def _stakers(db: Session, bet_id: int):
     """Distinct people who've staked on this bet, most-recent-stake-first --
     backs the avatar-stack social proof row on the group's bet list."""
@@ -220,6 +238,7 @@ def discover_groups(
         query = query.filter(Group.category == category)
 
     my_group_ids = {m.group_id for m in db.query(Membership).filter(Membership.user_id == user.id).all()}
+    hidden_bet_ids = {row.bet_id for row in db.query(BetHiddenFrom.bet_id).distinct().all()}
 
     out = []
     for group in query.order_by(Group.created_at.desc()).limit(50).all():
@@ -231,6 +250,7 @@ def discover_groups(
                 leader_display_name=leader.display_name, member_count=member_count,
                 has_rules=bool(group.rules), rules=group.rules, starting_balance=group.starting_balance,
                 is_member=group.id in my_group_ids, created_at=group.created_at,
+                trending_question=_trending_question(db, group.id, hidden_bet_ids),
             )
         )
     return out

@@ -1278,8 +1278,8 @@ function discoverResultRow(g) {
   const joinBtnOrLink = g.is_member
     ? `<a href="#/groups/${g.id}" class="secondary small">Open</a>`
     : g.has_rules
-      ? `<button class="secondary small" data-show-rules="${g.id}">Review & join</button>`
-      : `<button class="secondary small" data-join-public="${g.id}">Join</button>`;
+      ? `<button class="secondary small tactile" data-show-rules="${g.id}">Review & join</button>`
+      : `<button class="secondary small tactile" data-join-public="${g.id}">Join</button>`;
 
   return `
     <div class="card discover-card" data-discover-card="${g.id}">
@@ -1293,6 +1293,12 @@ function discoverResultRow(g) {
         </div>
         ${joinBtnOrLink}
       </div>
+      ${g.trending_question ? `
+        <div class="trending-question">
+          <span class="trending-label">${icon("bolt", 12)} Trending</span>
+          <p>${escapeHtml(g.trending_question)}</p>
+        </div>
+      ` : ""}
       <div class="row between" style="margin-top:8px;">
         ${g.starting_balance ? `<span class="badge">${icon("wallet", 11)} Starts with ${fmtCoins(g.starting_balance)} coins</span>` : "<span></span>"}
         <button class="ghost icon-btn" data-report-group="${g.id}" title="Report this group">${icon("flag", 12)}</button>

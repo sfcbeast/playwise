@@ -37,6 +37,49 @@ def test_public_group_appears_and_searchable(client, unique):
     assert res.json() == []
 
 
+def test_discover_shows_most_staked_open_question_as_trending(client, unique):
+    alice = register(client, f"a_{unique}")
+    bob = register(client, f"b_{unique}")
+    group = create_public_group(client, alice, f"Trending Group {unique}", starting_balance=1000)
+    client.post("/api/groups/join", json={"invite_code": group["invite_code"]}, headers=bob["auth"])
+
+    quiet_bet = client.post(
+        f"/api/groups/{group['id']}/bets", json={"question": "Barely staked", "options": ["A", "B"]},
+        headers=alice["auth"],
+    ).json()
+    hot_bet = client.post(
+        f"/api/groups/{group['id']}/bets", json={"question": "Very staked", "options": ["A", "B"]},
+        headers=alice["auth"],
+    ).json()
+    client.post(f"/api/bets/{quiet_bet['id']}/stake", json={"option_index": 0, "amount": 5}, headers=alice["auth"])
+    client.post(f"/api/bets/{hot_bet['id']}/stake", json={"option_index": 0, "amount": 500}, headers=alice["auth"])
+    client.post(f"/api/bets/{hot_bet['id']}/stake", json={"option_index": 1, "amount": 300}, headers=bob["auth"])
+
+    res = client.get(f"/api/groups/discover?q=Trending Group {unique}", headers=alice["auth"])
+    assert res.json()[0]["trending_question"] == "Very staked"
+
+
+def test_discover_trending_question_skips_incognito_bets(client, unique):
+    alice = register(client, f"a_{unique}")
+    bob = register(client, f"b_{unique}")
+    group = create_public_group(client, alice, f"Incognito Discover Group {unique}", starting_balance=1000)
+    client.post("/api/groups/join", json={"invite_code": group["invite_code"]}, headers=bob["auth"])
+
+    client.post(
+        f"/api/groups/{group['id']}/bets",
+        json={"question": "Secret plan", "options": ["A", "B"], "hidden_from_user_ids": [bob["id"]]},
+        headers=alice["auth"],
+    )
+    visible_bet = client.post(
+        f"/api/groups/{group['id']}/bets", json={"question": "Open question", "options": ["A", "B"]},
+        headers=alice["auth"],
+    ).json()
+    client.post(f"/api/bets/{visible_bet['id']}/stake", json={"option_index": 0, "amount": 10}, headers=alice["auth"])
+
+    res = client.get(f"/api/groups/discover?q=Incognito Discover Group {unique}", headers=bob["auth"])
+    assert res.json()[0]["trending_question"] == "Open question"
+
+
 def test_discover_category_filter(client, unique):
     alice = register(client, f"a_{unique}")
     create_public_group(client, alice, f"Stocks Group {unique}", category="stocks")

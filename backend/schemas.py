@@ -91,6 +91,10 @@ class PublicGroupOut(BaseModel):
     starting_balance: Optional[int]
     is_member: bool
     created_at: datetime.datetime
+    # The group's most-staked open question, if it has one -- gives a
+    # browsing (not-yet-a-member) visitor a reason to actually join instead
+    # of just a name and a member count.
+    trending_question: Optional[str] = None
 
 
 class MemberBalance(BaseModel):
