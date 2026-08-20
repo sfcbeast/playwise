@@ -1100,7 +1100,10 @@ async function viewGroups() {
   // for it otherwise, even though it can open any of them. Show every group
   // instead, private included, sourced from the same endpoint the admin
   // dashboard uses.
-  const groups = await api(user.is_superadmin ? "/api/admin/groups?limit=200" : "/api/groups");
+  const [groups, activeStakes] = await Promise.all([
+    api(user.is_superadmin ? "/api/admin/groups?limit=200" : "/api/groups"),
+    api("/api/me/active-stakes"),
+  ]);
 
   // Group creation now blocks a user from naming a new group the same as
   // one they're already in, but a name collision can still happen via
@@ -1153,6 +1156,23 @@ async function viewGroups() {
       <div class="section-gap"></div>
       ${groupsHtml}
     </div>
+
+    ${activeStakes.length ? `
+      <div class="card">
+        <h3 class="card-title">${icon("wallet", 16)} Your active stakes</h3>
+        ${activeStakes.map((s) => `
+          <a class="list-item clickable" href="#/bets/${s.bet_id}">
+            <div class="identity" style="flex:1;min-width:0;">
+              <div class="meta">
+                <div class="primary" style="white-space:normal;">${escapeHtml(s.question)}</div>
+                <div class="secondary">${escapeHtml(s.group_name)} · on "${escapeHtml(s.option_label)}"</div>
+              </div>
+            </div>
+            <span class="amount">${fmtCoins(s.amount)}</span>
+          </a>
+        `).join("")}
+      </div>
+    ` : ""}
 
     ${!groups.length && !user.is_superadmin ? `
       <div class="card onboarding-card">
@@ -1376,6 +1396,32 @@ async function viewDiscover() {
     }
   }
 
+  // "5+ resolved bets" below must match MIN_RESOLVED_BETS_FOR_RANKING in
+  // backend/routers/bets.py.
+  const topPredictors = await api("/api/top-predictors");
+  const topPredictorsHtml = topPredictors.length ? `
+    <div class="card">
+      <div class="row between">
+        <h3 class="card-title" style="margin:0;">${icon("trophy", 16)} Top predictors</h3>
+        ${icon("trophy", 18)}
+      </div>
+      <p class="muted" style="margin:2px 0 12px;font-size:0.82rem;">Platform-wide win rate — needs 5+ resolved bets to qualify.</p>
+      ${topPredictors.map((p, i) => `
+        <div class="list-item">
+          <span class="muted" style="width:20px;text-align:center;font-weight:700;flex-shrink:0;">${i + 1}</span>
+          <div class="identity" style="flex:1;min-width:0;">
+            ${avatarHtml(p.display_name, "sm")}
+            <div class="meta"><div class="primary">${escapeHtml(p.display_name)}</div></div>
+          </div>
+          <span class="row" style="gap:6px;">
+            <span class="secondary" style="font-size:0.78rem;">${p.wins}/${p.resolved_bets}</span>
+            <span class="amount positive">${p.win_pct}%</span>
+          </span>
+        </div>
+      `).join("")}
+    </div>
+  ` : "";
+
   setApp(`
     <a href="#/groups" class="row" style="gap:6px;color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;">${icon("arrowLeft", 15)} All groups</a>
     <div class="card">
@@ -1392,6 +1438,7 @@ async function viewDiscover() {
       </div>
     </div>
     <div id="discover-results">${skeletonView(2)}</div>
+    ${topPredictorsHtml}
   `);
 
   document.getElementById("discover-search-form").onsubmit = async (e) => {

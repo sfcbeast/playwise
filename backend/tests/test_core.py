@@ -127,6 +127,76 @@ def test_pari_mutuel_payout_math(client, unique):
     assert alice_balance + bob_balance + carol_balance == 1500  # no coins created or destroyed
 
 
+def test_active_stakes_shows_open_bets_across_groups_and_drops_on_resolve(client, unique):
+    alice = register(client, f"a_{unique}")
+    group_a = create_group(client, alice, f"Active Stakes A {unique}")
+    group_b = create_group(client, alice, f"Active Stakes B {unique}")
+    topup(client, alice, group_a["id"], 500, alice)
+    topup(client, alice, group_b["id"], 500, alice)
+
+    bet_a = client.post(
+        f"/api/groups/{group_a['id']}/bets", json={"question": "In A", "options": ["Yes", "No"]},
+        headers=alice["auth"],
+    ).json()
+    bet_b = client.post(
+        f"/api/groups/{group_b['id']}/bets", json={"question": "In B", "options": ["Yes", "No"]},
+        headers=alice["auth"],
+    ).json()
+    client.post(f"/api/bets/{bet_a['id']}/stake", json={"option_index": 0, "amount": 50}, headers=alice["auth"])
+    client.post(f"/api/bets/{bet_b['id']}/stake", json={"option_index": 1, "amount": 75}, headers=alice["auth"])
+
+    res = client.get("/api/me/active-stakes", headers=alice["auth"])
+    assert res.status_code == 200
+    by_bet = {row["bet_id"]: row for row in res.json()}
+    assert by_bet[bet_a["id"]]["group_name"] == group_a["name"]
+    assert by_bet[bet_a["id"]]["amount"] == 50
+    assert by_bet[bet_a["id"]]["option_label"] == "Yes"
+    assert by_bet[bet_b["id"]]["amount"] == 75
+
+    # resolving a bet should drop it from "active" -- it's no longer open
+    client.post(f"/api/bets/{bet_a['id']}/resolve", json={"winning_option": 0}, headers=alice["auth"])
+    res = client.get("/api/me/active-stakes", headers=alice["auth"])
+    remaining_ids = {row["bet_id"] for row in res.json()}
+    assert bet_a["id"] not in remaining_ids
+    assert bet_b["id"] in remaining_ids
+
+
+def test_top_predictors_requires_minimum_resolved_bets(client, unique):
+    alice = register(client, f"a_{unique}")
+    bob = register(client, f"b_{unique}")
+    group = create_group(client, alice, f"Predictors Group {unique}")
+    join_group(client, bob, group["invite_code"])
+    topup(client, alice, group["id"], 1000, alice)
+    topup(client, bob, group["id"], 1000, alice)
+
+    # alice: 4 resolved bets, wins all 4 -- below the qualifying threshold
+    for i in range(4):
+        bet = client.post(
+            f"/api/groups/{group['id']}/bets", json={"question": f"A{i}", "options": ["Yes", "No"]},
+            headers=alice["auth"],
+        ).json()
+        client.post(f"/api/bets/{bet['id']}/stake", json={"option_index": 0, "amount": 10}, headers=alice["auth"])
+        client.post(f"/api/bets/{bet['id']}/resolve", json={"winning_option": 0}, headers=alice["auth"])
+
+    # bob: 5 resolved bets, wins 3 of them -- meets the threshold, 60% win rate
+    for i in range(5):
+        bet = client.post(
+            f"/api/groups/{group['id']}/bets", json={"question": f"B{i}", "options": ["Yes", "No"]},
+            headers=alice["auth"],
+        ).json()
+        winning = 0 if i < 3 else 1
+        client.post(f"/api/bets/{bet['id']}/stake", json={"option_index": 0, "amount": 10}, headers=bob["auth"])
+        client.post(f"/api/bets/{bet['id']}/resolve", json={"winning_option": winning}, headers=alice["auth"])
+
+    res = client.get("/api/top-predictors", headers=alice["auth"])
+    assert res.status_code == 200
+    by_id = {row["user_id"]: row for row in res.json()}
+    assert alice["id"] not in by_id  # only 4 resolved bets, below the threshold of 5
+    assert by_id[bob["id"]]["win_pct"] == 60
+    assert by_id[bob["id"]]["wins"] == 3
+    assert by_id[bob["id"]]["resolved_bets"] == 5
+
+
 def test_leaderboard_ranks_by_net_winnings_not_balance(client, unique):
     alice = register(client, f"a_{unique}")
     bob = register(client, f"b_{unique}")

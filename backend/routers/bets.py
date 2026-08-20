@@ -6,9 +6,10 @@ from sqlalchemy.orm import Session
 from backend.auth import get_current_user
 from backend.db import get_db
 from backend.helpers import get_group_or_404, get_membership_or_403, log_event, require_creator_or_leader
-from backend.models import Bet, BetHiddenFrom, Membership, Stake, Transaction, User
+from backend.models import Bet, BetHiddenFrom, Group, Membership, Stake, Transaction, User
 from backend.routers.push import notify_user
 from backend.schemas import (
+    ActiveStakeOut,
     BetCreateRequest,
     BetDetail,
     BetEditRequest,
@@ -17,7 +18,13 @@ from backend.schemas import (
     ResolveRequest,
     StakeCreateRequest,
     StakeOut,
+    TopPredictorOut,
 )
+
+# A win% ranking is meaningless (and misleading) off a tiny sample -- someone
+# 1-for-1 would show "100%" and top a list of people with a real track
+# record. This is the bar for actually qualifying for the ranking.
+MIN_RESOLVED_BETS_FOR_RANKING = 5
 
 router = APIRouter(tags=["bets"])
 
@@ -355,3 +362,64 @@ def resolve_bet(
         )
 
     return get_bet(bet_id, db, user)
+
+
+@router.get("/api/me/active-stakes", response_model=list[ActiveStakeOut])
+def list_active_stakes(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Everything the caller currently has riding, across every group
+    they're in -- a bet hidden from someone else's view is never a
+    contradiction here, since staking on a bet already proves it wasn't
+    hidden from *this* user in the first place."""
+    stakes = (
+        db.query(Stake)
+        .join(Bet, Stake.bet_id == Bet.id)
+        .filter(Stake.user_id == user.id, Bet.status == "open")
+        .order_by(Stake.created_at.desc())
+        .all()
+    )
+    out = []
+    for s in stakes:
+        bet = db.get(Bet, s.bet_id)
+        group = db.get(Group, bet.group_id)
+        out.append(
+            ActiveStakeOut(
+                bet_id=bet.id, group_id=bet.group_id, group_name=group.name, question=bet.question,
+                option_label=bet.options[s.option_index], amount=s.amount,
+            )
+        )
+    return out
+
+
+@router.get("/api/top-predictors", response_model=list[TopPredictorOut])
+def top_predictors(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Platform-wide ranking by win rate -- unlike a balance or net-winnings
+    leaderboard, a percentage is comparable across groups regardless of
+    stake size or starting balance, so this doesn't need to be scoped to
+    one group. Requires MIN_RESOLVED_BETS_FOR_RANKING resolved bets to
+    qualify, so a lucky 1-for-1 can't misleadingly top the list."""
+    rows = (
+        db.query(Stake.user_id, Stake.bet_id, Stake.option_index, Bet.winning_option)
+        .join(Bet, Stake.bet_id == Bet.id)
+        .filter(Bet.status == "resolved")
+        .all()
+    )
+    per_user_bets: dict = {}
+    for user_id, bet_id, option_index, winning_option in rows:
+        bets = per_user_bets.setdefault(user_id, {})
+        bets[bet_id] = bets.get(bet_id, False) or (option_index == winning_option)
+
+    entries = []
+    for user_id, bets in per_user_bets.items():
+        total = len(bets)
+        if total < MIN_RESOLVED_BETS_FOR_RANKING:
+            continue
+        wins = sum(1 for won in bets.values() if won)
+        ranked_user = db.get(User, user_id)
+        entries.append(
+            TopPredictorOut(
+                user_id=user_id, display_name=ranked_user.display_name,
+                win_pct=round(wins / total * 100), wins=wins, resolved_bets=total,
+            )
+        )
+    entries.sort(key=lambda e: e.win_pct, reverse=True)
+    return entries[:20]

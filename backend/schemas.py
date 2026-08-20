@@ -338,6 +338,23 @@ class AdminGroupOut(BaseModel):
     created_at: datetime.datetime
 
 
+class ActiveStakeOut(BaseModel):
+    bet_id: int
+    group_id: int
+    group_name: str
+    question: str
+    option_label: str
+    amount: int
+
+
+class TopPredictorOut(BaseModel):
+    user_id: int
+    display_name: str
+    win_pct: int
+    wins: int
+    resolved_bets: int
+
+
 class PushSubscriptionKeys(BaseModel):
     p256dh: str
     auth: str
