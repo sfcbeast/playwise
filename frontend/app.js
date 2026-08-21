@@ -1095,6 +1095,38 @@ function viewRegister() {
 
 // ---- views: groups -------------------------------------------------------
 
+const ACTIVE_STAKES_COLLAPSED_COUNT = 4;
+
+// Biggest-at-risk stakes first, and capped by default -- this widget grows
+// one row per open stake across every group someone's in, which has no
+// natural ceiling, so "at a glance" only works if it doesn't just keep
+// getting longer as usage grows.
+function activeStakesRowsHtml(activeStakes) {
+  const sorted = activeStakes.slice().sort((a, b) => b.amount - a.amount);
+  const visible = sorted.slice(0, ACTIVE_STAKES_COLLAPSED_COUNT);
+  const rest = sorted.slice(ACTIVE_STAKES_COLLAPSED_COUNT);
+
+  const row = (s) => `
+    <a class="list-item compact clickable" href="#/bets/${s.bet_id}">
+      <div class="identity" style="flex:1;min-width:0;">
+        <div class="meta">
+          <div class="primary" style="white-space:normal;">${escapeHtml(s.question)}</div>
+          <div class="secondary">${escapeHtml(s.group_name)} · on "${escapeHtml(s.option_label)}"</div>
+        </div>
+      </div>
+      <span class="amount">${fmtCoins(s.amount)}</span>
+    </a>
+  `;
+
+  if (!rest.length) return visible.map(row).join("");
+
+  return `
+    ${visible.map(row).join("")}
+    <div id="active-stakes-rest" style="display:none;">${rest.map(row).join("")}</div>
+    <button type="button" class="link-btn" id="active-stakes-toggle" style="margin-top:6px;font-size:0.85rem;">Show ${rest.length} more</button>
+  `;
+}
+
 async function viewGroups() {
   setTitle();
   setApp(skeletonView(2));
@@ -1122,9 +1154,9 @@ async function viewGroups() {
 
   const groupsHtml = groups.length
     ? groups.map((g) => user.is_superadmin ? `
-        <a class="list-item clickable" href="#/groups/${g.id}">
+        <a class="list-item compact clickable" href="#/groups/${g.id}">
           <div class="identity">
-            ${avatarHtml(g.name)}
+            ${avatarHtml(g.name, "sm")}
             <div class="meta">
               <div class="primary">${escapeHtml(g.name)}</div>
               <div class="secondary">led by ${escapeHtml(g.leader_display_name)} · ${g.member_count} member${g.member_count === 1 ? "" : "s"}</div>
@@ -1135,9 +1167,9 @@ async function viewGroups() {
           </span>
         </a>
       ` : `
-        <a class="list-item clickable" href="#/groups/${g.id}">
+        <a class="list-item compact clickable" href="#/groups/${g.id}">
           <div class="identity">
-            ${avatarHtml(g.name)}
+            ${avatarHtml(g.name, "sm")}
             <div class="meta">
               <div class="primary">${escapeHtml(g.name)}${nameCounts[g.name.trim().toLowerCase()] > 1 ? ` <span class="muted" style="font-weight:400;font-size:0.8em;">#${escapeHtml(g.invite_code)}</span>` : ""}</div>
               ${g.parent_group_name ? `<div class="secondary">↳ inside ${escapeHtml(g.parent_group_name)}</div>` : ""}
@@ -1164,17 +1196,7 @@ async function viewGroups() {
     ${activeStakes.length ? `
       <div class="card">
         <h3 class="card-title">${icon("wallet", 16)} Your active stakes</h3>
-        ${activeStakes.map((s) => `
-          <a class="list-item clickable" href="#/bets/${s.bet_id}">
-            <div class="identity" style="flex:1;min-width:0;">
-              <div class="meta">
-                <div class="primary" style="white-space:normal;">${escapeHtml(s.question)}</div>
-                <div class="secondary">${escapeHtml(s.group_name)} · on "${escapeHtml(s.option_label)}"</div>
-              </div>
-            </div>
-            <span class="amount">${fmtCoins(s.amount)}</span>
-          </a>
-        `).join("")}
+        ${activeStakesRowsHtml(activeStakes)}
       </div>
     ` : ""}
 
@@ -1253,6 +1275,14 @@ async function viewGroups() {
       <div class="error" id="join-group-error"></div>
     </div>
   `);
+
+  const activeStakesToggle = document.getElementById("active-stakes-toggle");
+  if (activeStakesToggle) {
+    activeStakesToggle.onclick = () => {
+      document.getElementById("active-stakes-rest").style.display = "";
+      activeStakesToggle.remove();
+    };
+  }
 
   const publicToggle = document.getElementById("public-toggle");
   const publicOptions = document.getElementById("public-options");

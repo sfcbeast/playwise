@@ -444,13 +444,13 @@ button, a.secondary, a.ghost, a.danger, a.chip {
 button:active, a.secondary:active, a.ghost:active, a.danger:active, a.chip:active { transform: scale(0.96); }
 button:disabled { opacity: 0.55; cursor: default; transform: none; }
 
-button.primary, button:not([class*="secondary"]):not([class*="danger"]):not([class*="ghost"]):not([class*="chip"]):not([class*="segment"]) {
+button.primary, button:not([class*="secondary"]):not([class*="danger"]):not([class*="ghost"]):not([class*="chip"]):not([class*="segment"]):not([class*="link-btn"]) {
   background: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 70%, black 10%);
   color: white;
   box-shadow: 0 2px 8px -4px color-mix(in srgb, var(--accent) 60%, transparent);
 }
-button.primary:hover:not(:disabled), button:not([class*="secondary"]):not([class*="danger"]):not([class*="ghost"]):not([class*="chip"]):not([class*="segment"]):hover:not(:disabled) {
+button.primary:hover:not(:disabled), button:not([class*="secondary"]):not([class*="danger"]):not([class*="ghost"]):not([class*="chip"]):not([class*="segment"]):not([class*="link-btn"]):hover:not(:disabled) {
   filter: brightness(1.07);
   transform: translateY(-1px);
   box-shadow: 0 4px 12px -4px color-mix(in srgb, var(--accent) 65%, transparent);
@@ -608,6 +608,14 @@ button.chip.active { background: color-mix(in srgb, var(--accent) 16%, transpare
   box-shadow: 0 4px 14px -8px rgba(0, 0, 0, 0.35);
 }
 .list-item.clickable:active { transform: scale(0.99); }
+
+/* Tighter row height for lists that grow unbounded with usage (your
+   groups, your active stakes) -- more rows fit before the page gets
+   long, without losing anything the row actually needs to show. */
+.list-item.compact { padding: 8px 0; gap: 8px; }
+.list-item.compact.clickable { padding: 8px 10px; margin: 0 -10px; }
+.list-item.compact .identity { gap: 9px; }
+.list-item.compact .primary { font-size: 0.92rem; }
 
 .identity { display: flex; align-items: center; gap: 11px; min-width: 0; }
 .identity .meta { min-width: 0; }
