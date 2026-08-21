@@ -288,6 +288,57 @@ a.clickable-card:hover { text-decoration: none; }
 .card-title .icon { color: var(--text-tertiary); }
 
 /* ---------------------------------------------------------------------
+   Segmented control -- an iOS-style tab switcher for splitting a long
+   page (Group Detail) into sections instead of one continuous scroll.
+   Panels stay in the DOM and are just hidden/shown, so nothing about
+   the existing per-element wiring below has to change.
+--------------------------------------------------------------------- */
+.segmented-control {
+  display: flex;
+  background: var(--card-hover);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  gap: 2px;
+  margin-bottom: 14px;
+}
+.segment {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  text-align: center;
+  padding: 8px 6px;
+  border-radius: calc(var(--radius-md) - 3px);
+  font: var(--text-subhead);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.segment.active {
+  background: var(--card);
+  color: var(--text);
+  box-shadow: var(--shadow-card);
+}
+.segment-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--warning);
+  color: #1a1a1a;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+/* ---------------------------------------------------------------------
    Admin dashboard
 --------------------------------------------------------------------- */
 .stat-grid {
@@ -393,13 +444,13 @@ button, a.secondary, a.ghost, a.danger, a.chip {
 button:active, a.secondary:active, a.ghost:active, a.danger:active, a.chip:active { transform: scale(0.96); }
 button:disabled { opacity: 0.55; cursor: default; transform: none; }
 
-button.primary, button:not([class*="secondary"]):not([class*="danger"]):not([class*="ghost"]):not([class*="chip"]) {
+button.primary, button:not([class*="secondary"]):not([class*="danger"]):not([class*="ghost"]):not([class*="chip"]):not([class*="segment"]) {
   background: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 70%, black 10%);
   color: white;
   box-shadow: 0 2px 8px -4px color-mix(in srgb, var(--accent) 60%, transparent);
 }
-button.primary:hover:not(:disabled), button:not([class*="secondary"]):not([class*="danger"]):not([class*="ghost"]):not([class*="chip"]):hover:not(:disabled) {
+button.primary:hover:not(:disabled), button:not([class*="secondary"]):not([class*="danger"]):not([class*="ghost"]):not([class*="chip"]):not([class*="segment"]):hover:not(:disabled) {
   filter: brightness(1.07);
   transform: translateY(-1px);
   box-shadow: 0 4px 12px -4px color-mix(in srgb, var(--accent) 65%, transparent);
