@@ -21,9 +21,31 @@ def test_global_chat_post_and_list(client, unique):
     assert res.json() == []
 
 
+def test_global_chat_blocks_profanity_and_slurs(client, unique):
+    a = register(client, f"{unique}a")
+    # Deliberately not testing with an actual slur -- this proves the same
+    # code path (the filter doesn't distinguish severity) without putting
+    # one in the codebase. The production wordlist covers slurs too.
+    res = client.post("/api/chat/global", json={"message": "what the fuck"}, headers=a["auth"])
+    assert res.status_code == 400
+    assert "isn't allowed" in res.json()["detail"]
+
+    res = client.get("/api/chat/global?after_id=0", headers=a["auth"])
+    assert not any(m["message"] == "what the fuck" for m in res.json())  # never stored
+
+
 def test_global_chat_requires_auth(client):
     res = client.get("/api/chat/global")
     assert res.status_code == 401
+
+
+def test_group_chat_blocks_profanity_too(client, unique):
+    leader = register(client, f"{unique}gp")
+    group = create_group(client, leader, f"profanity-grp-{unique}")
+
+    res = client.post(f"/api/groups/{group['id']}/chat", json={"message": "shit happens"}, headers=leader["auth"])
+    assert res.status_code == 400
+    assert "isn't allowed" in res.json()["detail"]
 
 
 def test_group_chat_members_only(client, unique):

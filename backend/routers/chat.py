@@ -1,5 +1,6 @@
 from typing import Optional
 
+from better_profanity import profanity
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -14,6 +15,11 @@ router = APIRouter(tags=["chat"])
 
 MAX_MESSAGES_PER_MINUTE = 20
 
+# Maintained third-party wordlist (covers slurs and profanity) rather than a
+# hand-authored list living in this codebase -- applies to both global and
+# group chat, since leaving either unfiltered would defeat the point.
+profanity.load_censor_words()
+
 
 def _to_out(db: Session, m: ChatMessage) -> ChatMessageOut:
     author = db.get(User, m.user_id)
@@ -22,6 +28,11 @@ def _to_out(db: Session, m: ChatMessage) -> ChatMessageOut:
 
 def _post_message(db: Session, group_id, user: User, body: ChatMessageCreateRequest) -> ChatMessageOut:
     check_rate_limit(f"chat:{user.id}", MAX_MESSAGES_PER_MINUTE, 60)
+    if profanity.contains_profanity(body.message):
+        raise HTTPException(
+            status_code=400,
+            detail="That message isn't allowed — please remove any slurs or offensive language and try again.",
+        )
     msg = ChatMessage(group_id=group_id, user_id=user.id, message=body.message)
     db.add(msg)
     db.commit()
