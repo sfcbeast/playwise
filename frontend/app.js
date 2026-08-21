@@ -43,8 +43,12 @@ function icon(name, size = 18) {
 
 // ---- avatars ---------------------------------------------------------------
 
-const AVATAR_PALETTE = ["#5b8cff", "#7c6cff", "#34d399", "#fbbf24", "#f87171", "#22d3ee", "#f472b6", "#a78bfa"];
-const OPTION_PALETTE = ["#5b8cff", "#f87171", "#34d399", "#fbbf24", "#a78bfa", "#22d3ee", "#f472b6", "#fb923c"];
+// Deliberately muted/desaturated and kept clear of the app's semantic
+// colors (--positive green, --negative red, --warning amber, --accent
+// blue) -- these are identity/legend colors, not status colors, and
+// shouldn't visually compete with "you won" or "insufficient balance".
+const AVATAR_PALETTE = ["#7c93d6", "#9a83c9", "#5fa8a3", "#c98cae", "#9c8570", "#7b93a8", "#b98cc9", "#6c9bc7"];
+const OPTION_PALETTE = ["#7c93d6", "#c98cae", "#5fa8a3", "#9c8570", "#b98cc9", "#6c9bc7", "#9a83c9", "#7b93a8"];
 
 // A fun little critter/face set for avatars -- picked once per person (hashed
 // from their name, so it's stable across visits/devices, not re-rolled on
@@ -1566,6 +1570,11 @@ async function viewGroupDetail(groupId) {
     `;
   }
 
+  // Order below is deliberate: what's actually happening (open bets, the
+  // ability to ask a new one) comes first, member-facing but secondary
+  // content (members, sub-groups, top-ups) comes next, and leader-only
+  // administration comes last, in one consolidated card rather than two
+  // competing with the rest of the page for top billing.
   setApp(`
     <a href="#/groups" class="row" style="gap:6px;color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;">${icon("arrowLeft", 15)} All groups</a>
     ${group.parent_group_name ? `
@@ -1599,46 +1608,64 @@ async function viewGroupDetail(groupId) {
       </div>
     ` : ""}
 
-    ${isLeader ? `
-      <div class="card">
-        <h3 class="card-title">${icon("shield", 16)} Visibility & rules</h3>
-        <form id="group-settings-form" class="stack">
-          <label class="terms-check">
-            <input type="checkbox" id="settings-public-toggle" style="width:auto;" ${group.is_public ? "checked" : ""} />
-            <span>${icon("globe", 14)} Public — listed in Discover for anyone to search and join</span>
-          </label>
-          <div id="settings-public-options" class="stack" style="display:${group.is_public ? "" : "none"};">
-            <select name="category" id="settings-category-select">
-              ${GROUP_CATEGORIES.map((c) => `<option value="${c.value}" ${group.category === c.value ? "selected" : ""}>${c.emoji} ${c.label}</option>`).join("")}
-            </select>
-            <textarea name="rules" placeholder="Rules for new joiners (optional)" rows="3">${escapeHtml(group.rules || "")}</textarea>
-            <label class="field-label">${icon("wallet", 12)} Starting balance for new members (optional)</label>
-            <input type="number" name="starting_balance" min="0" step="1" placeholder="e.g. 10000 — leave blank to start at 0" value="${group.starting_balance ?? ""}" />
-            <p class="hint" style="margin:0;">Only affects people who join from now on — nobody's current balance changes.</p>
+    <div class="card">
+      <h3 class="card-title">${icon("clock", 16)} Open bets</h3>
+      ${openBets.length ? openBets.map(betRow).join("") : `<div class="empty-state">${icon("inbox", 24)}<p>${escapeHtml(pick(NO_BETS_MESSAGES))}</p></div>`}
+    </div>
+
+    <div class="card" id="new-question-section">
+      <h3 class="card-title">${icon("bolt", 16)} New question</h3>
+      <form id="bet-form" class="stack">
+        <input name="question" placeholder="What's the question?" required />
+        <div id="options-container" class="stack">
+          <div class="option-input-row"><input name="option" placeholder="Option 1" required /></div>
+          <div class="option-input-row"><input name="option" placeholder="Option 2" required /></div>
+        </div>
+        <button type="button" class="secondary small" id="add-option-btn" style="align-self:flex-start;">${icon("plus", 14)} Add option</button>
+
+        <div class="image-upload-section stack">
+          <label class="field-label">${icon("image", 14)} Attach an image (optional)</label>
+          <input type="file" accept="image/*" id="bet-image-input" />
+          <div id="bet-image-preview-wrap" style="display:none;">
+            <img id="bet-image-preview" class="bet-image-preview" alt="" />
+            <button type="button" class="ghost small" id="remove-bet-image-btn">${icon("x", 12)} Remove image</button>
           </div>
-          <button type="submit" class="secondary small" style="align-self:flex-start;">Save</button>
-        </form>
-        <div class="error" id="group-settings-error"></div>
-      </div>
-    ` : ""}
+          <div class="error" id="bet-image-error"></div>
+        </div>
 
-    ${canParticipate ? `
-      <div class="card">
-        <h3 class="card-title">${icon("plus", 16)} Request a top-up</h3>
-        <form id="topup-form" class="form-inline">
-          <input name="amount" type="number" min="1" placeholder="Amount" required />
-          <button type="submit">Request</button>
-        </form>
-        <div class="error" id="topup-error"></div>
-      </div>
-    ` : ""}
+        <div class="timer-section stack">
+          <label class="field-label" style="color:var(--warning);">${icon("clock", 14)} Staking deadline (optional)</label>
+          <input type="datetime-local" name="closes_at" id="bet-closes-at" />
+          <div class="row">
+            <button type="button" class="chip" data-closes-in="1">+1h</button>
+            <button type="button" class="chip" data-closes-in="6">+6h</button>
+            <button type="button" class="chip" data-closes-in="24">+1d</button>
+            <button type="button" class="chip" data-closes-in="72">+3d</button>
+            <button type="button" class="chip" data-closes-in="168">+1w</button>
+            <button type="button" class="chip" data-closes-in="clear">No deadline</button>
+          </div>
+          <p class="hint" style="margin:0;">If set, no one can stake after this time — you can still resolve whenever the outcome's known.</p>
+        </div>
 
-    ${isLeader ? `
-      <div class="card">
-        <h3 class="card-title">${icon("inbox", 16)} Pending top-up requests</h3>
-        ${pendingHtml}
-      </div>
-    ` : ""}
+        <div class="incognito-section stack">
+          <label class="field-label" style="color:var(--text-secondary);display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="incognito-toggle" style="width:auto;" ${membersExceptMe.length ? "" : "disabled"} />
+            ${icon("eyeOff", 14)} Incognito question (optional)
+          </label>
+          ${membersExceptMe.length ? `
+            <div id="incognito-members" class="incognito-checklist" style="display:none;">
+              ${membersExceptMe.map((m) => `<label><input type="checkbox" name="hidden_from" value="${m.user_id}" /> ${escapeHtml(m.display_name)}</label>`).join("")}
+            </div>
+            <p class="hint" style="margin:0;">Selected members won't be able to see this question exists at all — not in the list, not in notifications.</p>
+          ` : `
+            <p class="hint" style="margin:0;">Invite other members to this group before you can hide a question from anyone.</p>
+          `}
+        </div>
+
+        <div class="error" id="bet-error"></div>
+        <button type="submit">Create question</button>
+      </form>
+    </div>
 
     <div class="card">
       <h3 class="card-title">${icon("users", 16)} Members</h3>
@@ -1679,64 +1706,45 @@ async function viewGroupDetail(groupId) {
       </div>
     ` : ""}
 
-    <div class="card" id="new-question-section">
-      <h3 class="card-title">${icon("bolt", 16)} New question</h3>
-      <form id="bet-form" class="stack">
-        <input name="question" placeholder="What's the question?" required />
-        <div id="options-container" class="stack">
-          <div class="option-input-row"><input name="option" placeholder="Option 1" required /></div>
-          <div class="option-input-row"><input name="option" placeholder="Option 2" required /></div>
-        </div>
-        <button type="button" class="secondary small" id="add-option-btn" style="align-self:flex-start;">${icon("plus", 14)} Add option</button>
+    ${canParticipate ? `
+      <div class="card">
+        <h3 class="card-title">${icon("plus", 16)} Request a top-up</h3>
+        <form id="topup-form" class="form-inline">
+          <input name="amount" type="number" min="1" placeholder="Amount" required />
+          <button type="submit">Request</button>
+        </form>
+        <div class="error" id="topup-error"></div>
+      </div>
+    ` : ""}
 
-        <div class="image-upload-section stack">
-          <label class="field-label">${icon("image", 14)} Attach an image (optional)</label>
-          <input type="file" accept="image/*" id="bet-image-input" />
-          <div id="bet-image-preview-wrap" style="display:none;">
-            <img id="bet-image-preview" class="bet-image-preview" alt="" />
-            <button type="button" class="ghost small" id="remove-bet-image-btn">${icon("x", 12)} Remove image</button>
-          </div>
-          <div class="error" id="bet-image-error"></div>
-        </div>
-
-        <div class="timer-section stack">
-          <label class="field-label" style="color:var(--warning);">${icon("clock", 14)} Staking deadline (optional)</label>
-          <input type="datetime-local" name="closes_at" id="bet-closes-at" />
-          <div class="row">
-            <button type="button" class="chip" data-closes-in="1">+1h</button>
-            <button type="button" class="chip" data-closes-in="6">+6h</button>
-            <button type="button" class="chip" data-closes-in="24">+1d</button>
-            <button type="button" class="chip" data-closes-in="72">+3d</button>
-            <button type="button" class="chip" data-closes-in="168">+1w</button>
-            <button type="button" class="chip" data-closes-in="clear">No deadline</button>
-          </div>
-          <p class="hint" style="margin:0;">If set, no one can stake after this time — you can still resolve whenever the outcome's known.</p>
-        </div>
-
-        <div class="incognito-section stack">
-          <label class="field-label" style="color:var(--accent-2);display:flex;align-items:center;gap:6px;">
-            <input type="checkbox" id="incognito-toggle" style="width:auto;" ${membersExceptMe.length ? "" : "disabled"} />
-            ${icon("eyeOff", 14)} Incognito question (optional)
+    ${isLeader ? `
+      <div class="card">
+        <h3 class="card-title">${icon("shield", 16)} Group settings</h3>
+        <form id="group-settings-form" class="stack">
+          <label class="terms-check">
+            <input type="checkbox" id="settings-public-toggle" style="width:auto;" ${group.is_public ? "checked" : ""} />
+            <span>${icon("globe", 14)} Public — listed in Discover for anyone to search and join</span>
           </label>
-          ${membersExceptMe.length ? `
-            <div id="incognito-members" class="incognito-checklist" style="display:none;">
-              ${membersExceptMe.map((m) => `<label><input type="checkbox" name="hidden_from" value="${m.user_id}" /> ${escapeHtml(m.display_name)}</label>`).join("")}
-            </div>
-            <p class="hint" style="margin:0;">Selected members won't be able to see this question exists at all — not in the list, not in notifications.</p>
-          ` : `
-            <p class="hint" style="margin:0;">Invite other members to this group before you can hide a question from anyone.</p>
-          `}
+          <div id="settings-public-options" class="stack" style="display:${group.is_public ? "" : "none"};">
+            <select name="category" id="settings-category-select">
+              ${GROUP_CATEGORIES.map((c) => `<option value="${c.value}" ${group.category === c.value ? "selected" : ""}>${c.emoji} ${c.label}</option>`).join("")}
+            </select>
+            <textarea name="rules" placeholder="Rules for new joiners (optional)" rows="3">${escapeHtml(group.rules || "")}</textarea>
+            <label class="field-label">${icon("wallet", 12)} Starting balance for new members (optional)</label>
+            <input type="number" name="starting_balance" min="0" step="1" placeholder="e.g. 10000 — leave blank to start at 0" value="${group.starting_balance ?? ""}" />
+            <p class="hint" style="margin:0;">Only affects people who join from now on — nobody's current balance changes.</p>
+          </div>
+          <button type="submit" class="secondary small" style="align-self:flex-start;">Save</button>
+        </form>
+        <div class="error" id="group-settings-error"></div>
+
+        <div class="section-gap" style="padding-top:14px;border-top:1px dashed var(--border);">
+          <label class="field-label">${icon("inbox", 12)} Pending top-up requests</label>
+          <div class="section-gap"></div>
+          ${pendingHtml}
         </div>
-
-        <div class="error" id="bet-error"></div>
-        <button type="submit">Create question</button>
-      </form>
-    </div>
-
-    <div class="card">
-      <h3 class="card-title">${icon("clock", 16)} Open bets</h3>
-      ${openBets.length ? openBets.map(betRow).join("") : `<div class="empty-state">${icon("inbox", 24)}<p>${escapeHtml(pick(NO_BETS_MESSAGES))}</p></div>`}
-    </div>
+      </div>
+    ` : ""}
 
     ${resolvedBets.length ? `
       <div class="card">
