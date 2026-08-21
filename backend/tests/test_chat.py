@@ -1,4 +1,7 @@
+from better_profanity import profanity
+
 from backend.rate_limit import _attempts
+from backend.slur_list import RACIAL_SLURS
 
 from .conftest import create_group, join_group, register
 
@@ -21,17 +24,32 @@ def test_global_chat_post_and_list(client, unique):
     assert res.json() == []
 
 
-def test_global_chat_blocks_profanity_and_slurs(client, unique):
+def test_global_chat_allows_swearing(client, unique):
+    # Slurs-only filter: general profanity is deliberately allowed through.
     a = register(client, f"{unique}a")
-    # Deliberately not testing with an actual slur -- this proves the same
-    # code path (the filter doesn't distinguish severity) without putting
-    # one in the codebase. The production wordlist covers slurs too.
     res = client.post("/api/chat/global", json={"message": "what the fuck"}, headers=a["auth"])
-    assert res.status_code == 400
-    assert "isn't allowed" in res.json()["detail"]
+    assert res.status_code == 200, res.text
 
     res = client.get("/api/chat/global?after_id=0", headers=a["auth"])
-    assert not any(m["message"] == "what the fuck" for m in res.json())  # never stored
+    assert any(m["message"] == "what the fuck" for m in res.json())
+
+
+def test_chat_blocks_words_in_slur_list(client, unique):
+    # Swaps in a nonsense placeholder instead of a real slur, so no actual
+    # slur needs to live in this test file/git history. This verifies the
+    # filtering mechanism (whatever's loaded gets blocked), not the list's
+    # content -- the real RACIAL_SLURS list is loaded at import time in
+    # backend/routers/chat.py and restored here after the assertion.
+    profanity.load_censor_words(custom_words=["xyzzyplaceholderslurword"])
+    try:
+        a = register(client, f"{unique}b")
+        res = client.post(
+            "/api/chat/global", json={"message": "xyzzyplaceholderslurword"}, headers=a["auth"]
+        )
+        assert res.status_code == 400
+        assert "isn't allowed" in res.json()["detail"]
+    finally:
+        profanity.load_censor_words(custom_words=RACIAL_SLURS)
 
 
 def test_global_chat_requires_auth(client):
@@ -39,13 +57,12 @@ def test_global_chat_requires_auth(client):
     assert res.status_code == 401
 
 
-def test_group_chat_blocks_profanity_too(client, unique):
+def test_group_chat_allows_swearing_too(client, unique):
     leader = register(client, f"{unique}gp")
-    group = create_group(client, leader, f"profanity-grp-{unique}")
+    group = create_group(client, leader, f"swear-grp-{unique}")
 
     res = client.post(f"/api/groups/{group['id']}/chat", json={"message": "shit happens"}, headers=leader["auth"])
-    assert res.status_code == 400
-    assert "isn't allowed" in res.json()["detail"]
+    assert res.status_code == 200, res.text
 
 
 def test_group_chat_members_only(client, unique):

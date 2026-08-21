@@ -10,15 +10,15 @@ from backend.helpers import get_group_or_404, get_membership_or_403
 from backend.models import ChatMessage, Group, User
 from backend.rate_limit import check_rate_limit
 from backend.schemas import ChatMessageCreateRequest, ChatMessageOut
+from backend.slur_list import RACIAL_SLURS
 
 router = APIRouter(tags=["chat"])
 
 MAX_MESSAGES_PER_MINUTE = 20
 
-# Maintained third-party wordlist (covers slurs and profanity) rather than a
-# hand-authored list living in this codebase -- applies to both global and
-# group chat, since leaving either unfiltered would defeat the point.
-profanity.load_censor_words()
+# Slurs-only: normal swearing is allowed through chat, only racial/ethnic
+# slurs are blocked. Applies to both global and group chat via _post_message.
+profanity.load_censor_words(custom_words=RACIAL_SLURS)
 
 
 def _to_out(db: Session, m: ChatMessage) -> ChatMessageOut:
@@ -31,7 +31,7 @@ def _post_message(db: Session, group_id, user: User, body: ChatMessageCreateRequ
     if profanity.contains_profanity(body.message):
         raise HTTPException(
             status_code=400,
-            detail="That message isn't allowed — please remove any slurs or offensive language and try again.",
+            detail="That message isn't allowed — please remove any slurs and try again.",
         )
     msg = ChatMessage(group_id=group_id, user_id=user.id, message=body.message)
     db.add(msg)
